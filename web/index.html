@@ -131,6 +131,94 @@
   .velocidade { width: 100%; accent-color: #fff; }
   .config-nota { margin-top: 14px; font-size: 12px; color: var(--fraco); }
 
+  /* Mudo: sempre visível no canto de baixo, pra você saber se ele está ouvindo. */
+  .botao-mudo {
+    position: fixed; left: 16px; bottom: 16px; z-index: 5; height: 38px; padding: 0 10px 0 12px;
+    display: flex; align-items: center; gap: 8px; border: 1px solid var(--linha); border-radius: 999px;
+    background: rgba(255, 255, 255, .04); color: var(--suave); cursor: pointer;
+    font: inherit; font-size: 11px; letter-spacing: .2em; text-transform: uppercase;
+    transition: color .2s, background .2s, border-color .2s;
+  }
+  .botao-mudo:hover { color: #fff; background: rgba(255, 255, 255, .1); }
+  .botao-mudo kbd {
+    font: inherit; font-size: 10px; letter-spacing: 0; padding: 2px 6px; border-radius: 6px;
+    border: 1px solid var(--linha); color: var(--fraco);
+  }
+  .botao-mudo .icone-mudo { display: none; }
+  body.mudo .botao-mudo { color: #fff; border-color: rgba(255, 255, 255, .75); background: rgba(255, 255, 255, .1); }
+  body.mudo .botao-mudo .icone-mic { display: none; }
+  body.mudo .botao-mudo .icone-mudo { display: block; }
+  canvas { transition: opacity .6s; }
+  body.mudo canvas { opacity: .35; }
+  .dica { bottom: 64px; }
+
+  /* Painel de atividade na lateral direita */
+  :root { --painel: min(400px, 34vw); }
+  .painel {
+    position: fixed; top: 0; right: 0; bottom: 0; width: var(--painel); z-index: 6; box-sizing: border-box;
+    display: flex; flex-direction: column; background: rgba(8, 8, 8, .94); border-left: 1px solid rgba(255, 255, 255, .1);
+    transition: transform .35s ease; user-select: text;
+  }
+  body.sem-painel .painel { transform: translateX(100%); visibility: hidden; transition: transform .35s ease, visibility 0s .35s; }
+  .painel-topo {
+    display: flex; align-items: center; gap: 12px; padding: 16px 16px 14px 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, .08);
+  }
+  .painel-titulo { font-size: 12px; letter-spacing: .28em; text-transform: uppercase; font-weight: 600; }
+  .painel-estado {
+    display: flex; align-items: center; gap: 8px; margin-left: auto; font-size: 11px; letter-spacing: .2em;
+    text-transform: uppercase; color: var(--suave);
+  }
+  .painel-lista {
+    flex: 1; overflow-y: auto; padding: 8px 20px 24px; scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, .15) transparent;
+  }
+  .painel-vazio { margin-top: 24px; font-size: 13px; line-height: 1.6; color: var(--fraco); }
+  .p-turno { padding: 14px 0 16px; border-bottom: 1px solid rgba(255, 255, 255, .07); animation: entra .35s ease both; }
+  .p-hora { font-size: 10px; letter-spacing: .2em; color: var(--fraco); margin-bottom: 10px; }
+  .p-linha { margin: 0 0 12px; font-size: 13px; line-height: 1.5; animation: entra .3s ease both; }
+  .p-rotulo { font-size: 10px; letter-spacing: .22em; text-transform: uppercase; color: var(--suave); margin-bottom: 4px; }
+  .p-texto { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .p-voce .p-texto { color: var(--suave); }
+  .p-pensamento .p-texto, .p-nota .p-texto { color: var(--fraco); font-style: italic; }
+  .p-ferramenta { position: relative; padding: 8px 10px 8px 26px; border: 1px solid rgba(255, 255, 255, .1); border-radius: 10px; background: rgba(255, 255, 255, .03); }
+  .p-ferramenta::before {
+    content: ""; position: absolute; left: 10px; top: 13px; width: 7px; height: 7px; border-radius: 50%; background: #fff; opacity: .4;
+  }
+  .p-ferramenta.rodando::before { animation: pisca 1s ease-in-out infinite; opacity: 1; }
+  .p-ferramenta.ok::before { opacity: .9; box-shadow: 0 0 8px rgba(255, 255, 255, .6); }
+  .p-ferramenta.erro { border-color: rgba(255, 120, 120, .5); }
+  .p-ferramenta.erro::before { background: #ff7b7b; opacity: 1; }
+  .p-ferramenta .p-rotulo { color: var(--texto); margin-bottom: 2px; }
+  .p-detalhe, .p-resultado {
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 11.5px; color: var(--suave);
+    white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  .p-resultado { margin-top: 6px; color: var(--fraco); max-height: 4.8em; overflow: hidden; }
+  .p-jarvis .p-rotulo { color: var(--texto); }
+  .p-jarvis .p-texto { font-size: 15px; font-weight: 500; }
+  .p-escrito { margin-top: 10px; padding: 10px 12px; border: 1px solid rgba(255, 255, 255, .22); border-radius: 10px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
+  .p-escrito-titulo { font-size: 10px; letter-spacing: .22em; text-transform: uppercase; color: var(--suave); margin-bottom: 6px; }
+  .p-tempo { margin-top: 8px; font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--fraco); }
+  .p-aviso { font-size: 12px; color: var(--fraco); }
+  .abrir-painel {
+    position: fixed; top: 14px; right: 62px; z-index: 5; height: 36px; padding: 0 10px 0 14px; display: flex;
+    align-items: center; gap: 8px; border: 1px solid var(--linha); border-radius: 999px; background: rgba(255, 255, 255, .04);
+    color: var(--suave); cursor: pointer; font: inherit; font-size: 11px; letter-spacing: .2em; text-transform: uppercase;
+  }
+  .abrir-painel:hover { color: #fff; background: rgba(255, 255, 255, .1); }
+  .abrir-painel kbd { font: inherit; font-size: 10px; letter-spacing: 0; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--linha); color: var(--fraco); }
+  body:not(.sem-painel) .abrir-painel { display: none; }
+  @media (min-width: 901px) {
+    /* Com o painel aberto, o resto da tela se ajeita no espaço que sobra */
+    body:not(.sem-painel) .engrenagem { right: calc(var(--painel) + 14px); }
+    body:not(.sem-painel) .topo { right: calc(var(--painel) + 32px); }
+    body:not(.sem-painel) .legenda { left: calc((100% - var(--painel)) / 2); width: min(980px, calc(100vw - var(--painel) - 32px)); }
+    body:not(.sem-painel) .dica { right: calc(var(--painel) + 16px); }
+    body:not(.sem-painel) #caixa { left: calc((100% - var(--painel)) / 2); }
+  }
+  @media (max-width: 900px) { .painel { width: 100vw; } }
+
   @keyframes pisca { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
   @keyframes entra { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
   @media (max-width: 600px) {
@@ -140,7 +228,7 @@
 </style>
 </head>
 <body data-estado="iniciando">
-<canvas id="esfera" aria-label="Esfera do JARVIS. Segure a barra de espaço para falar."></canvas>
+<canvas id="esfera" aria-label="Esfera do JARVIS. Fale e ele escuta; M deixa o microfone mudo."></canvas>
 
 <div class="topo">
   <span class="marca">Jarvis</span>
@@ -175,7 +263,25 @@
   <div class="aviso" id="aviso"></div>
 </div>
 
-<div class="dica" id="dica">Segure <b>espaço</b> pra falar · <b>T</b> digitar · <b>N</b> nova conversa · <b>H</b> detalhes</div>
+<button id="mudo" class="botao-mudo" aria-pressed="false" title="Microfone (M)">
+  <svg class="icone-mic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+  <svg class="icone-mudo" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 9.3V6a3 3 0 0 0-5.7-1.3M9 9v2a3 3 0 0 0 4.9 2.3M5 11a7 7 0 0 0 11.4 5.4M19 11a7 7 0 0 1-.6 2.8M12 18v3M3 3l18 18"/></svg>
+  <span class="mudo-texto">Ouvindo</span><kbd>M</kbd>
+</button>
+
+<div class="dica" id="dica">Fale à vontade · <b>M</b> mudo · <b>espaço</b> interrompe · <b>P</b> painel · <b>T</b> digitar · <b>N</b> nova conversa · <b>H</b> detalhes</div>
+
+<aside id="painel" class="painel" aria-label="O que o Jarvis está pensando e fazendo">
+  <div class="painel-topo">
+    <span class="painel-titulo">Atividade</span>
+    <span class="painel-estado"><span class="ponto"></span><span id="painelEstado">iniciando</span></span>
+    <button id="fecharPainel" class="config-fechar" aria-label="Fechar painel (P)" title="Fechar (P)">×</button>
+  </div>
+  <div id="painelLista" class="painel-lista" aria-live="polite">
+    <div id="painelVazio" class="painel-vazio">Fale com ele e aqui aparece o que ele entendeu, o que está pensando, cada ferramenta que usa e a resposta por escrito.</div>
+  </div>
+</aside>
+<button id="abrirPainel" class="abrir-painel" aria-controls="painel" title="Painel de atividade (P)">Atividade <kbd>P</kbd></button>
 
 <script>
 (() => {
@@ -191,6 +297,126 @@
     estado = novo;
     corpo.dataset.estado = novo;
     el("estadoTexto").textContent = NOMES[novo] || novo;
+    el("painelEstado").textContent = NOMES[novo] || novo;
+  }
+
+  // ---------------------------------------------------------- painel de atividade
+  // Mostra na lateral o que ele está pensando e fazendo, e a resposta por escrito.
+  // P abre e fecha. Tudo entra como texto (nunca como HTML).
+  const lista = el("painelLista");
+  const passos = {};  // id da ferramenta -> linha no painel (pra marcar quando terminar)
+  let cartao = null;
+  let painelAberto = innerWidth > 900;
+  try { const p = localStorage.getItem("jarvis-painel"); if (p) painelAberto = p === "1"; } catch (e) {}
+
+  function desenharPainel() {
+    corpo.classList.toggle("sem-painel", !painelAberto);
+    el("abrirPainel").setAttribute("aria-expanded", painelAberto ? "true" : "false");
+  }
+
+  function alternarPainel() {
+    painelAberto = !painelAberto;
+    try { localStorage.setItem("jarvis-painel", painelAberto ? "1" : "0"); } catch (e) {}
+    desenharPainel();
+  }
+
+  function hora() {
+    return new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  }
+
+  function rolarPainel() {
+    lista.scrollTop = lista.scrollHeight;
+  }
+
+  function novoCartao() {
+    el("painelVazio").hidden = true;
+    cartao = document.createElement("div");
+    cartao.className = "p-turno";
+    const h = document.createElement("div");
+    h.className = "p-hora";
+    h.textContent = hora();
+    cartao.appendChild(h);
+    lista.appendChild(cartao);
+    while (lista.querySelectorAll(".p-turno").length > 40) lista.querySelector(".p-turno").remove();
+    return cartao;
+  }
+
+  function painelLinha(classe, rotulo, texto, detalhe) {
+    if (!cartao) novoCartao();
+    const linha = document.createElement("div");
+    linha.className = "p-linha " + classe;
+    if (rotulo) {
+      const r = document.createElement("div");
+      r.className = "p-rotulo";
+      r.textContent = rotulo;
+      linha.appendChild(r);
+    }
+    if (texto) {
+      const t = document.createElement("div");
+      t.className = "p-texto";
+      t.textContent = texto;
+      linha.appendChild(t);
+    }
+    if (detalhe) {
+      const d = document.createElement("div");
+      d.className = "p-detalhe";
+      d.textContent = detalhe;
+      linha.appendChild(d);
+    }
+    cartao.appendChild(linha);
+    rolarPainel();
+    return linha;
+  }
+
+  function painelVoce(texto) {
+    novoCartao();
+    painelLinha("p-voce", "Você", texto);
+  }
+
+  function painelPasso(e) {
+    if (e.passo === "pensamento") {
+      painelLinha("p-pensamento", "Pensando", e.texto);
+    } else if (e.passo === "texto") {
+      painelLinha("p-nota", "", e.texto);
+    } else if (e.passo === "ferramenta") {
+      const linha = painelLinha("p-ferramenta rodando", e.rotulo, "", e.detalhe);
+      if (e.id) passos[e.id] = linha;
+    } else if (e.passo === "resultado") {
+      const linha = passos[e.id];
+      if (!linha) return;  // ferramenta interna, que não aparece no painel
+      delete passos[e.id];
+      linha.classList.remove("rodando");
+      linha.classList.add(e.erro ? "erro" : "ok");
+      if (e.texto) {
+        const r = document.createElement("div");
+        r.className = "p-resultado";
+        r.textContent = (e.erro ? "Erro: " : "") + e.texto;
+        linha.appendChild(r);
+        rolarPainel();
+      }
+    }
+  }
+
+  function painelResposta(e) {
+    if (!cartao) novoCartao();
+    Object.keys(passos).forEach((id) => { passos[id].classList.remove("rodando"); delete passos[id]; });
+    const linha = painelLinha("p-jarvis", "Jarvis", e.completo || e.texto);
+    if (e.escrito) {
+      const caixa = document.createElement("div");
+      caixa.className = "p-escrito";
+      const t = document.createElement("div");
+      t.className = "p-escrito-titulo";
+      t.textContent = "Alteração";
+      const corpoEscrito = document.createElement("div");
+      corpoEscrito.textContent = e.escrito;
+      caixa.append(t, corpoEscrito);
+      linha.appendChild(caixa);
+    }
+    const tempo = document.createElement("div");
+    tempo.className = "p-tempo";
+    tempo.textContent = "respondeu em " + String(e.segundos).replace(".", ",") + " s";
+    linha.appendChild(tempo);
+    rolarPainel();
   }
 
   // ---------------------------------------------------------- esfera
@@ -243,7 +469,8 @@
     rot += veloc;
 
     ctx.clearRect(0, 0, W, H);
-    const cx = W / 2, cy = H * 0.42;
+    const lateral = painelAberto && W > 900 ? Math.min(400, W * 0.34) : 0;  // a esfera fica no meio do que sobra
+    const cx = (W - lateral) / 2, cy = H * 0.42;
     const R = Math.min(W, H) * 0.2 * (1 + nivel * 0.3);
 
     const brilho = ctx.createRadialGradient(cx, cy, R * 0.05, cx, cy, R * 2.1);
@@ -299,9 +526,9 @@
       analisadorSaida.connect(audioCtx.destination);
     }
   }
-  // Qualquer toque ou tecla destrava o som do navegador.
-  addEventListener("pointerdown", () => { prepararAudio(); }, { capture: true });
-  addEventListener("keydown", () => { prepararAudio(); }, { capture: true });
+  // Qualquer toque ou tecla destrava o som do navegador (e liga o microfone, se não estiver mudo).
+  addEventListener("pointerdown", () => { prepararAudio().then(() => ligarMicrofone()); }, { capture: true });
+  addEventListener("keydown", () => { prepararAudio().then(() => ligarMicrofone()); }, { capture: true });
 
   function decodificar(dados) {
     return new Promise((ok, falha) => {
@@ -345,6 +572,7 @@
     const pendente = fila.shift();
     if (!pendente) {
       tocando = false;
+      liberadoEm = performance.now() + 600;  // não escuta o finzinho da própria voz
       mudarEstado(turnoAberto ? "pensando" : "parado");
       return;
     }
@@ -375,10 +603,24 @@
     }
   }
 
-  let micStream = null, gravador = null, pedacos = [], gravando = false, inicioGravacao = 0;
-  let picoGravacao = 0, medidor = null;
-  let querGravar = false, limiteGravacao = null;
+  // ---------------------------------------------------------- escuta contínua
+  // Sem tecla: o microfone fica aberto e grava sozinho quando você fala. Para quando
+  // você fica em silêncio. Enquanto ele fala ou trabalha, não escuta. M deixa mudo.
+  const TAXA = 16000;          // a fala vai em WAV de 16 kHz (arquivo pequeno)
+  const PRE_ROLL = 0.4;        // guarda 0,4 s antes da fala, pra não cortar a primeira sílaba
+  const SILENCIO_FIM = 1200;   // ms em silêncio pra considerar que você terminou
+  const MIN_FALA = 450;        // ms: menos que isso é barulho (tosse, clique)
   const MAX_GRAVACAO = 30000;  // 30 s: depois disso para sozinho
+  let micStream = null, fonteMic = null, processador = null, ligandoMic = false;
+  let mudo = false;
+  try { mudo = localStorage.getItem("jarvis-mudo") === "1"; } catch (e) {}
+  let gravando = false, blocos = [], antes = [], amostrasAntes = 0;
+  let inicioGravacao = 0, ultimaVoz = 0, picoGravacao = 0, seguidos = 0;
+  let ruido = 0.02, liberadoEm = 0;
+
+  const limiar = () => Math.max(0.09, Math.min(0.3, ruido * 3));
+  const podeOuvir = () => !mudo && estado === "parado" && !tocando && !configAberta() && !digitando()
+    && performance.now() > liberadoEm;
 
   // Espaço a qualquer momento: se ele estiver falando, cala; se estiver trabalhando, cancela o pedido.
   function interromper() {
@@ -388,61 +630,148 @@
     return ocupado ? fetch("/api/interromper", { method: "POST" }).catch(() => {}) : Promise.resolve();
   }
 
-  async function comecarGravacao() {
-    if (gravando || querGravar) return;
-    if (["aquecendo", "iniciando"].includes(estado)) { avisar("Um momento, Senhor. Ainda estou ligando."); return; }
-    interromper();
-    querGravar = true;
-    corpo.classList.add("usado");
-    try {
-      await prepararAudio();
-      if (!micStream) {
-        micStream = await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-        });
-        analisadorMic = audioCtx.createAnalyser();
-        analisadorMic.fftSize = 1024;
-        audioCtx.createMediaStreamSource(micStream).connect(analisadorMic);
-      }
-    } catch (erro) {
-      querGravar = false;
-      avisar("Sem acesso ao microfone. Libere no navegador ou aperte T pra digitar.");
+  function reduzir(entrada) {  // da taxa do microfone (44,1 ou 48 kHz) pra 16 kHz
+    const passo = audioCtx.sampleRate / TAXA;
+    const n = Math.floor(entrada.length / passo);
+    const saida = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const a = Math.floor(i * passo), b = Math.min(entrada.length, Math.floor((i + 1) * passo));
+      let s = 0;
+      for (let j = a; j < b; j++) s += entrada[j];
+      saida[i] = s / Math.max(1, b - a);
+    }
+    return saida;
+  }
+
+  function nivelDe(bloco) {
+    let soma = 0;
+    for (let i = 0; i < bloco.length; i++) soma += bloco[i] * bloco[i];
+    return Math.min(1, Math.sqrt(soma / bloco.length) * 4.5);
+  }
+
+  function aoReceber(ev) {
+    const bloco = reduzir(ev.inputBuffer.getChannelData(0));
+    const nv = nivelDe(bloco);
+    const agora = performance.now();
+    if (gravando) {
+      blocos.push(bloco);
+      picoGravacao = Math.max(picoGravacao, nv);
+      if (nv > limiar() * 0.6) ultimaVoz = agora;
+      if (agora - ultimaVoz > SILENCIO_FIM || agora - inicioGravacao > MAX_GRAVACAO) terminarGravacao();
       return;
     }
-    if (!querGravar) return;  // soltou o espaço antes do microfone abrir
-    pararFala();
-    pedacos = [];
-    picoGravacao = 0;
-    clearInterval(medidor);
-    medidor = setInterval(() => { picoGravacao = Math.max(picoGravacao, volume(analisadorMic)); }, 50);
-    const tipos = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg"];
-    const tipo = tipos.find((t) => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || "";
-    gravador = new MediaRecorder(micStream, tipo ? { mimeType: tipo } : undefined);
-    gravador.ondataavailable = (e) => { if (e.data && e.data.size) pedacos.push(e.data); };
-    gravador.onstop = enviarGravacao;
-    gravador.start();
+    antes.push(bloco);
+    amostrasAntes += bloco.length;
+    while (antes.length > 1 && amostrasAntes - antes[0].length > PRE_ROLL * TAXA) amostrasAntes -= antes.shift().length;
+    if (!podeOuvir()) { seguidos = 0; return; }
+    if (nv > limiar()) {
+      if (++seguidos >= 2) comecarGravacao(agora);  // dois blocos seguidos (~90 ms) com voz
+    } else {
+      seguidos = 0;
+      ruido += (nv - ruido) * 0.05;  // aprende o barulho de fundo do ambiente
+    }
+  }
+
+  function comecarGravacao(agora) {
     gravando = true;
-    inicioGravacao = performance.now();
-    clearTimeout(limiteGravacao);
-    limiteGravacao = setTimeout(pararGravacao, MAX_GRAVACAO);
+    blocos = antes;
+    antes = [];
+    amostrasAntes = 0;
+    picoGravacao = 0;
+    inicioGravacao = agora;
+    ultimaVoz = agora;
+    corpo.classList.add("usado");
     mudarEstado("ouvindo");
   }
 
-  function pararGravacao() {
-    querGravar = false;
-    clearTimeout(limiteGravacao);
-    if (!gravando) return;
+  function cancelarGravacao() {
     gravando = false;
-    clearInterval(medidor);
-    gravador.stop();
+    blocos = [];
+    if (estado === "ouvindo") mudarEstado("parado");
   }
 
-  async function enviarGravacao() {
-    const curta = performance.now() - inicioGravacao < 350;
-    const blob = new Blob(pedacos, { type: (gravador && gravador.mimeType) || "audio/webm" });
-    if (curta || blob.size < 2000) { mudarEstado("parado"); return; }
+  function terminarGravacao() {
+    gravando = false;
+    const fala = ultimaVoz - inicioGravacao;
+    const pedacos = blocos;
+    blocos = [];
+    if (fala < MIN_FALA) { mudarEstado("parado"); return; }
+    enviarGravacao(wav(pedacos));
+  }
+
+  function wav(pedacos) {
+    const total = pedacos.reduce((s, b) => s + b.length, 0);
+    const buf = new ArrayBuffer(44 + total * 2), v = new DataView(buf);
+    const txt = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+    txt(0, "RIFF"); v.setUint32(4, 36 + total * 2, true); txt(8, "WAVE"); txt(12, "fmt ");
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, TAXA, true); v.setUint32(28, TAXA * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+    txt(36, "data"); v.setUint32(40, total * 2, true);
+    let o = 44;
+    for (const b of pedacos) {
+      for (let i = 0; i < b.length; i++, o += 2) v.setInt16(o, Math.max(-1, Math.min(1, b[i])) * 0x7fff, true);
+    }
+    return new Blob([buf], { type: "audio/wav" });
+  }
+
+  async function ligarMicrofone() {
+    if (mudo || micStream || ligandoMic) return;
+    ligandoMic = true;
+    try {
+      await prepararAudio();
+      if (audioCtx.state !== "running") { avisar("Clique na tela pra ligar o microfone."); return; }
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        });
+      } catch (erro) {
+        avisar("Sem acesso ao microfone. Libere no navegador ou aperte T pra digitar.");
+        return;
+      }
+      if (mudo) { desligarMicrofone(); return; }
+      fonteMic = audioCtx.createMediaStreamSource(micStream);
+      analisadorMic = audioCtx.createAnalyser();
+      analisadorMic.fftSize = 1024;
+      fonteMic.connect(analisadorMic);
+      processador = audioCtx.createScriptProcessor(2048, 1, 1);
+      processador.onaudioprocess = aoReceber;
+      fonteMic.connect(processador);
+      const calado = audioCtx.createGain();  // o processador só roda ligado na saída; ganho 0 = sem eco
+      calado.gain.value = 0;
+      processador.connect(calado);
+      calado.connect(audioCtx.destination);
+    } finally {
+      ligandoMic = false;
+    }
+  }
+
+  function desligarMicrofone() {
+    cancelarGravacao();
+    if (processador) { processador.onaudioprocess = null; processador.disconnect(); }
+    if (fonteMic) fonteMic.disconnect();
+    if (micStream) micStream.getTracks().forEach((t) => t.stop());  // apaga o aviso de microfone do navegador
+    micStream = fonteMic = processador = analisadorMic = null;
+    antes = [];
+    amostrasAntes = 0;
+  }
+
+  function alternarMudo() {
+    mudo = !mudo;
+    try { localStorage.setItem("jarvis-mudo", mudo ? "1" : "0"); } catch (e) {}
+    desenharMudo();
+    if (mudo) { desligarMicrofone(); avisar("Microfone mudo. Aperte M pra voltar."); }
+    else { ligarMicrofone(); avisar("Ouvindo, Senhor."); }
+  }
+
+  function desenharMudo() {
+    corpo.classList.toggle("mudo", mudo);
+    const b = el("mudo");
+    b.setAttribute("aria-pressed", mudo ? "true" : "false");
+    b.querySelector(".mudo-texto").textContent = mudo ? "Mudo" : "Ouvindo";
+  }
+
+  async function enviarGravacao(blob) {
     if (picoGravacao < 0.06) {  // só silêncio: o whisper inventa frase ("Legenda por...")
-      avisar("Não ouvi nada. Segure o espaço e fale mais perto do microfone.");
       diag("silencio", "pico " + picoGravacao.toFixed(3));
       mudarEstado("parado");
       return;
@@ -530,8 +859,11 @@
       } else if (e.tipo === "voce") {
         turnoAberto = true;
         el("voce").textContent = "“" + e.texto + "”";
+        painelVoce(e.texto);
       } else if (e.tipo === "ferramenta") {
         chip(e.rotulo);
+      } else if (e.tipo === "passo") {
+        painelPasso(e);
       } else if (e.tipo === "fala") {
         falar(e.audio);  // aviso rápido, o trabalho continua
       } else if (e.tipo === "resposta") {
@@ -539,9 +871,11 @@
         document.querySelectorAll(".chip").forEach((c) => c.classList.add("feito"));
         el("resposta").textContent = e.texto;
         el("tempo").textContent = "respondeu em " + String(e.segundos).replace(".", ",") + " s";
+        painelResposta(e);
         falar(e.audio);
       } else if (e.tipo === "aviso") {
         avisar(e.texto);
+        if (cartao) painelLinha("p-aviso", "", e.texto);
       }
     };
     fonte.onerror = () => { mudarEstado("iniciando"); };
@@ -565,12 +899,13 @@
   function desenharVozes() {
     const lista = el("listaVozes");
     lista.innerHTML = "";
-    ["masculina", "feminina"].forEach((genero) => {
+    const titulos = { masculina: "Masculinas", feminina: "Femininas", voicestudio: "Voice Studio" };
+    Object.keys(titulos).forEach((genero) => {
       const vozes = config.vozes.filter((v) => v.genero === genero);
       if (!vozes.length) return;
       const titulo = document.createElement("div");
       titulo.className = "grupo-voz";
-      titulo.textContent = genero === "masculina" ? "Masculinas" : "Femininas";
+      titulo.textContent = titulos[genero];
       lista.appendChild(titulo);
       vozes.forEach((v) => {
         const item = document.createElement("div");
@@ -645,13 +980,22 @@
       if (e.key === "Escape") { corpo.classList.remove("digitando"); el("entrada").blur(); }
       return;
     }
-    if (e.code === "Space") { e.preventDefault(); if (!e.repeat) comecarGravacao(); return; }
+    if (e.code === "Space") {  // não grava mais: só interrompe (cala a fala ou cancela o pedido)
+      e.preventDefault();
+      if (e.repeat) return;
+      if (gravando) cancelarGravacao();
+      interromper();
+      liberadoEm = performance.now() + 300;
+      mudarEstado("parado");
+      return;
+    }
     const k = e.key.toLowerCase();
+    if (k === "m") { e.preventDefault(); alternarMudo(); return; }
     if (k === "t") { e.preventDefault(); corpo.classList.add("digitando"); el("entrada").focus(); }
     if (k === "h") corpo.classList.toggle("detalhes");
+    if (k === "p") { e.preventDefault(); alternarPainel(); }
     if (k === "n") { novoTurno(); fetch("/api/reiniciar", { method: "POST" }); avisar("Conversa nova."); }
   });
-  addEventListener("keyup", (e) => { if (e.code === "Space" && !digitando() && !configAberta()) { e.preventDefault(); pararGravacao(); } });
 
   el("entrada").addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
@@ -663,10 +1007,13 @@
     }
   });
 
-  // Só o espaço liga o microfone (clique na janela não grava nada).
-  // Se você trocar de janela segurando o espaço, a gravação para.
-  addEventListener("blur", pararGravacao);
-  document.addEventListener("visibilitychange", () => { if (document.hidden) pararGravacao(); });
+  // O microfone continua ouvindo mesmo com a janela em segundo plano. Pra parar, M ou o botão.
+  el("mudo").addEventListener("click", (ev) => { ev.currentTarget.blur(); alternarMudo(); });
+  desenharMudo();
+  el("abrirPainel").addEventListener("click", (ev) => { ev.currentTarget.blur(); alternarPainel(); });
+  el("fecharPainel").addEventListener("click", (ev) => { ev.currentTarget.blur(); alternarPainel(); });
+  desenharPainel();
+  ligarMicrofone();  // tenta já ao abrir; se o navegador exigir, liga no primeiro clique ou tecla
 })();
 </script>
 </body>

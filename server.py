@@ -66,12 +66,23 @@ def carregar_config():
         "contexto": base.get("JARVIS_CONTEXTO", "leve"),
         "persona": base.get("JARVIS_PERSONA", "persona.md"),
         "eleven_key": base.get("ELEVENLABS_API_KEY", ""),
+        # Segundo cérebro: pasta de notas que ele lê ao ligar e onde guarda o que importa
+        "cerebro": Path(base["JARVIS_CEREBRO"]).expanduser() if base.get("JARVIS_CEREBRO") else None,
+        # Quem fala: elevenlabs (nuvem, pago por caractere) | piper (no PC, grátis, rápido)
+        #            | voicestudio (no PC, na placa de vídeo, com as vozes que você criou no VoiceStudio)
+        "motor_voz": base.get("JARVIS_VOZ_MOTOR", "elevenlabs").lower(),
+        "piper_voz": base.get("JARVIS_PIPER_VOZ", "pt_BR-faber-medium"),
+        "vs_url": base.get("VOICESTUDIO_URL", "http://127.0.0.1:3900").rstrip("/"),
+        "vs_voz": base.get("JARVIS_VOICESTUDIO_VOZ", "default"),  # id ou nome do perfil de voz
+        "vs_estilo": base.get("JARVIS_VOICESTUDIO_ESTILO", ""),   # instrução de estilo opcional
         "voz": base.get("JARVIS_VOZ", "xHUwLsLfyqiYOIVTzLRW"),
         "modelo_voz": base.get("JARVIS_MODELO_VOZ", "eleven_multilingual_v2"),
         "velocidade_voz": float(base.get("JARVIS_VELOCIDADE_VOZ", "1.0")),
         "transcricao": base.get("JARVIS_TRANSCRICAO", "auto"),
         "whisper_url": base.get("WHISPER_URL", "http://127.0.0.1:8178").rstrip("/"),
         "bloquear": base.get("JARVIS_BLOQUEAR_FERRAMENTAS", ""),
+        # 1 = a trava (hooks/trava.py) pede "confirma" antes de apagar, enviar ou publicar | 0 = desligada
+        "trava": base.get("JARVIS_TRAVA", "1") == "1",
         "aquecer": base.get("JARVIS_AQUECER", "1") == "1",
         "aquecer_atalhos": base.get("JARVIS_AQUECER_ATALHOS", ""),
     }
@@ -81,9 +92,40 @@ CFG = carregar_config()
 PREFS = ESTADO / "preferencias.json"  # o que se escolhe na engrenagem vale mais que o .env
 
 
-def carregar_vozes():
+PIPER = CFG["motor_voz"] == "piper"
+VOICESTUDIO = CFG["motor_voz"] == "voicestudio"
+PIPER_PASTA = RAIZ / "vozes-piper"
+if PIPER:
+    CFG["voz"] = CFG["piper_voz"]  # no Piper, a voz é o nome do modelo em vozes-piper/
+if VOICESTUDIO:
+    CFG["voz"] = CFG["vs_voz"]  # no VoiceStudio, a voz é o id do perfil
+
+
+def tem_voz():
+    return PIPER or VOICESTUDIO or bool(CFG["eleven_key"])
+
+
+def vozes_voicestudio():
+    """Os perfis de voz salvos no VoiceStudio viram as opções da engrenagem."""
     try:
-        return json.loads((RAIZ / "vozes.json").read_text(encoding="utf-8"))
+        with urllib.request.urlopen(CFG["vs_url"] + "/profiles", timeout=5) as r:
+            perfis = json.loads(r.read())
+    except Exception:
+        perfis = []  # VoiceStudio ainda fechado: a voz do .env vale, a lista enche quando ele abrir
+    vozes = [{"id": p["id"], "nome": p.get("name") or p["id"], "genero": "voicestudio",
+              "descricao": (p.get("description") or "Perfil do VoiceStudio")[:80]} for p in perfis]
+    if CFG["vs_voz"] not in {v["id"] for v in vozes}:  # aceita o nome do perfil no .env
+        achou = next((v for v in vozes if v["nome"].lower() == CFG["vs_voz"].lower()), None)
+        if achou:
+            CFG["voz"] = CFG["vs_voz"] = achou["id"]
+    return vozes
+
+
+def carregar_vozes():
+    if VOICESTUDIO:
+        return vozes_voicestudio()
+    try:
+        return json.loads((RAIZ / ("vozes-piper.json" if PIPER else "vozes.json")).read_text(encoding="utf-8"))
     except (FileNotFoundError, ValueError):
         return []
 
@@ -93,7 +135,7 @@ def carregar_preferencias():
         p = json.loads(PREFS.read_text(encoding="utf-8"))
     except (FileNotFoundError, ValueError):
         return
-    if p.get("voz"):
+    if p.get("voz") in {v["id"] for v in VOZES}:  # ignora voz salva do outro motor
         CFG["voz"] = p["voz"]
     if p.get("velocidade"):
         CFG["velocidade_voz"] = float(p["velocidade"])
@@ -107,6 +149,62 @@ def salvar_preferencias():
 VOZES = carregar_vozes()
 carregar_preferencias()
 AMOSTRA = "Às suas ordens, Senhor. É assim que eu vou falar com o senhor daqui pra frente."
+
+
+# ------------------------------------------------------------ segundo cérebro
+
+def ler_nota(nome, limite=6000):
+    try:
+        return (CFG["cerebro"] / nome).read_text(encoding="utf-8")[:limite].strip()
+    except (OSError, TypeError):
+        return ""
+
+
+def fim_do_diario(limite):
+    """As últimas conversas anotadas (do dia mais recente)."""
+    try:
+        dias = sorted((CFG["cerebro"] / "Diário").glob("*.md"))
+        return dias[-1].read_text(encoding="utf-8")[-limite:].strip() if dias else ""
+    except (OSError, TypeError):
+        return ""
+
+
+def contexto_cerebro():
+    """Vai junto da persona em cada sessão nova do Claude: assim ele nunca começa do zero."""
+    pasta = CFG["cerebro"]
+    if not pasta or not pasta.is_dir():
+        return ""
+    notas = sorted(str(n.relative_to(pasta)) for n in pasta.rglob("*.md") if "Diário" not in n.parts)
+    partes = [
+        f"\n\n## Segundo cérebro (sua memória de longo prazo)\nFica em `{pasta}`. As regras de organização estão no LEIA-ME.md dela.",
+        "\n### 00 Agora.md (no que vocês estão trabalhando)\n" + ler_nota("00 Agora.md"),
+        "\n### Preferências.md\n" + ler_nota("Preferências.md", 3000),
+        "\n### Notas que existem\n" + "\n".join("- " + n for n in notas[:150]),
+    ]
+    diario = fim_do_diario(3000)
+    if diario:
+        partes.append("\n### Últimas conversas (fim do diário)\n" + diario)
+    return "".join(partes)
+
+
+def anotar_diario(voce, resposta, escrito="", quem="Claude"):
+    """Cada conversa entra sozinha no diário do dia, mesmo que ninguém lembre de anotar."""
+    pasta = CFG["cerebro"]
+    if not pasta or not pasta.is_dir():
+        return
+    try:
+        dia = time.strftime("%Y-%m-%d")
+        arquivo = pasta / "Diário" / f"{dia}.md"
+        arquivo.parent.mkdir(exist_ok=True)
+        novo = not arquivo.exists()
+        with open(arquivo, "a", encoding="utf-8") as f:
+            if novo:
+                f.write(f"# Diário {dia}\n\nConversas com o JARVIS, anotadas sozinhas.\n")
+            f.write(f"\n**{time.strftime('%H:%M')}** · Cainã: {voce}\nJARVIS ({quem}): {resposta}\n")
+            if escrito:
+                f.write("Alteração:\n" + escrito.strip() + "\n")
+    except OSError as erro:
+        log({"evento": "diario_falhou", "erro": repr(erro)})
 
 
 def persona():
@@ -166,10 +264,26 @@ NOMES_SERVIDOR = {
     "claude_ai_Google_Calendar": "Agenda",
     "claude_ai_Gmail": "Gmail",
     "claude_ai_Google_Drive": "Drive",
+    "claude_ai_Google_Sheets": "Planilhas",
+    "claude_ai_Canva": "Canva",
+    "claude_ai_Figma": "Figma",
 }
 
 
 INTERNAS = {"ToolSearch", "TodoWrite", "BashOutput", "KillShell", "ListMcpResourcesTool", "ReadMcpResourceTool"}
+
+
+def descrever_ferramenta(nome, entrada):
+    """O detalhe que aparece no painel: o comando, o arquivo, a busca."""
+    entrada = entrada or {}
+    if nome in ("Bash", "PowerShell"):
+        return entrada.get("description") or entrada.get("command", "")
+    for chave in ("file_path", "notebook_path", "path", "pattern", "query", "url", "skill", "description", "prompt"):
+        if entrada.get(chave):
+            return str(entrada[chave])
+    if nome.startswith("mcp__"):
+        return nome.split("__")[-1].replace("_", " ")
+    return json.dumps(entrada, ensure_ascii=False)[:200] if entrada else ""
 
 
 def rotulo_ferramenta(nome, entrada):
@@ -196,6 +310,8 @@ def rotulo_ferramenta(nome, entrada):
             return "Lendo o vault"
         return "Terminal"
     caminho = str(entrada.get("file_path") or entrada.get("path") or entrada.get("pattern") or "")
+    if "Segundo Cérebro" in caminho or "Segundo Cérebro" in str(entrada.get("command", "")):
+        return "Segundo cérebro"
     if nome in ("Write", "Edit", "MultiEdit"):
         if "TaskNotes" in caminho:
             return "Kanban"
@@ -220,7 +336,12 @@ def rotulo_ferramenta(nome, entrada):
 # Vai junto de cada fala: o modelo tende a se alongar quando acha muita coisa.
 LEMBRETE = ("\n\n[modo voz: pergunta simples (conversa, confirmação, algo que você já sabe) = responda direto, "
             "sem aviso e sem ferramenta. Só se precisar de ferramenta, comece com uma frase curta de aviso (até 10 palavras). "
-            "Resposta final em no máximo 2 frases curtas, até 30 palavras. Trate-o por Senhor.]")
+            "Resposta final em no máximo 2 frases curtas, até 30 palavras, no seu tom sarcástico (e às vezes filosófico). "
+            "Trate-o por Senhor. "
+            "Se surgiu informação importante ou o trabalho avançou, atualize o segundo cérebro (00 Agora.md e a nota certa) "
+            "antes da resposta final, sem comentar isso. "
+            "Se você alterou algo, depois da fala ponha uma linha só com § e embaixo o resumo escrito da alteração "
+            "(esse trecho não é falado nem conta no limite).]")
 ESPERA_AVISO = 0.3  # só fala "um instante" se o trabalho com ferramenta passar disso
 
 
@@ -285,9 +406,10 @@ class SessaoClaude:
             "--verbose",
             "--include-partial-messages",  # avisa o fim do texto antes de fechar a rodada
             "--permission-mode", "bypassPermissions",
-            "--settings", json.dumps(ajustes),
-            "--append-system-prompt", persona() + self.nota_pasta(),
+            "--append-system-prompt", persona() + self.nota_pasta() + contexto_cerebro(),
         ]
+        if CFG["trava"]:
+            cmd += ["--settings", json.dumps(ajustes)]
         if CFG["contexto"] == "leve":
             cmd += ["--add-dir", str(CFG["pasta"])]
         if CFG["modelo"]:
@@ -304,8 +426,10 @@ class SessaoClaude:
 
     def pasta_de_abertura(self):
         if CFG["contexto"] == "leve":
-            leve = RAIZ / "cerebro"  # pasta vazia: o Claude não carrega o CLAUDE.md nem a memória da sua pasta
-            leve.mkdir(exist_ok=True)
+            # Pasta vazia FORA do projeto: o Claude não carrega o CLAUDE.md da sua pasta nem o do projeto
+            # (o Claude Code lê o CLAUDE.md das pastas acima de onde abre; dentro de jarvis/ ele pegaria o de lá)
+            leve = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "JARVIS" / "cerebro"
+            leve.mkdir(parents=True, exist_ok=True)
             return str(leve)
         return str(CFG["pasta"])
 
@@ -378,9 +502,13 @@ class SessaoClaude:
                         turno.entregar({"result": texto_msg, "cedo": True})
             elif tipo == "assistant":
                 for bloco in e.get("message", {}).get("content", []) or []:
-                    if bloco.get("type") == "text":
+                    if bloco.get("type") == "thinking" and bloco.get("thinking", "").strip():
+                        EVENTOS.emitir({"tipo": "passo", "passo": "pensamento", "texto": bloco["thinking"].strip()[:1500]})
+                    elif bloco.get("type") == "text":
                         texto_msg = (texto_msg + " " + bloco.get("text", "")).strip()
                     elif bloco.get("type") == "tool_use":
+                        if texto_msg:  # o que ele escreveu antes de usar a ferramenta
+                            EVENTOS.emitir({"tipo": "passo", "passo": "texto", "texto": texto_msg[:1500]})
                         if turno:
                             turno.marcar("ferramenta_s")
                         # Texto escrito antes da primeira ferramenta = aviso rápido ("Um instante, Senhor.").
@@ -393,6 +521,19 @@ class SessaoClaude:
                         self.ferramentas_turno.append(f"{bloco.get('name')} {resumo}")
                         if rot:
                             EVENTOS.emitir({"tipo": "ferramenta", "rotulo": rot})
+                            EVENTOS.emitir({"tipo": "passo", "passo": "ferramenta", "id": bloco.get("id"),
+                                            "rotulo": rot, "detalhe": descrever_ferramenta(bloco.get("name", ""), bloco.get("input"))})
+            elif tipo == "user":
+                # Resultado de cada ferramenta: deu certo ou deu erro, e o começo do que voltou
+                conteudo = e.get("message", {}).get("content", [])
+                for bloco in conteudo if isinstance(conteudo, list) else []:
+                    if bloco.get("type") != "tool_result":
+                        continue
+                    volta = bloco.get("content")
+                    if isinstance(volta, list):
+                        volta = " ".join(str(p.get("text", "")) for p in volta if isinstance(p, dict))
+                    EVENTOS.emitir({"tipo": "passo", "passo": "resultado", "id": bloco.get("tool_use_id"),
+                                    "erro": bool(bloco.get("is_error")), "texto": " ".join(str(volta or "").split())[:300]})
             elif tipo == "result":
                 if turno:
                     turno.entregar(e)
@@ -436,6 +577,106 @@ class SessaoClaude:
 SESSAO = SessaoClaude()
 
 
+# ---------------------------------------------------------------- IA local (Ollama)
+# Tarefas simples de pasta e arquivo vão pro modelo local (grátis). O que for código,
+# apagar, internet ou qualquer dúvida segue pro Claude.
+# Modelo menor cabe na placa de vídeo junto com o VoiceStudio (o 9B dividia os 6 GB e ficava lento)
+LOCAL_MODELO = os.environ.get("JARVIS_MODELO_LOCAL") or ler_env(RAIZ / ".env").get("JARVIS_MODELO_LOCAL", "gemma2:2b")
+LOCAL_URL = "http://127.0.0.1:11434/api/generate"
+LOCAL_VERBOS = re.compile(r"\b(organiz\w*|mov\w+|renome\w+|copi\w+|separ\w+|junt\w+|list\w+|cri\w+ (uma |a )?(nova )?pasta|nova pasta|quantos arquivos|arquivos da pasta)\b")
+LOCAL_CLAUDE = re.compile(r"(claude|cloud|clod|claudio)")
+LOCAL_CODIGO = re.compile(r"\b(html|css|javascript|js|typescript|python|codigo|script|site|pagina|servidor|server|funcao|bug|git|deploy|api|jarvis|instal\w+|apag\w+|exclu\w+|delet\w+|envi\w+|email|agenda|whatsapp|pesquis\w+)\b")
+# Contas Google (Gmail, Agenda, Drive, Planilhas): só o Claude tem os conectores
+LOCAL_GOOGLE = re.compile(r"\b(google|gmail|e ?mails?|mail|caixa de entrada|inbox|remetente|respond\w+|rascunho\w*|"
+                          r"agenda\w*|calendario|compromisso\w*|reuni\w+|evento\w*|marc\w+|desmarc\w+|horario\w*|"
+                          r"drive|planilh\w+|sheets?|documento\w*|docs|apresenta\w+|slides?|compartilh\w+)\b")
+# Guardar ou lembrar algo precisa do Claude: só ele escreve e procura no segundo cérebro
+LOCAL_MEMORIA = re.compile(r"\b(lembr\w*|anot\w*|guard\w*|memori\w*|esquec\w*|registr\w*|cerebro|salv\w*|"
+                           r"trabalhando|estavamos|paramos|combinamos|falamos|decidimos)\b")
+LOCAL_PROIBIDO = re.compile(
+    r"(\b(Remove-\w+|rm|del|erase|rd|rmdir|ri|Invoke-\w+|iwr|irm|iex|icm|Start-Process|Stop-\w+|Restart-\w+|"
+    r"Set-ExecutionPolicy|reg|schtasks|shutdown|winget|cmd|powershell|pwsh|curl|wget|taskkill|Send-\w+|git|npm|pip|"
+    r"Format-\w+|Clear-\w+|Out-Printer)\b|\.\.|`|\$\(|\$env|~)", re.I)
+LOCAL_PROMPT = (
+    "Você converte pedidos simples de organização de arquivos em UM comando PowerShell (Windows 11). "
+    "Pasta base do usuário: {base}. Use sempre caminhos absolutos dentro dela. "
+    "Permitido: Get-ChildItem, Move-Item, Copy-Item, Rename-Item, New-Item -ItemType Directory. "
+    "Nunca apague nada, nunca use internet, nunca use caminhos fora da pasta base. "
+    "Se o pedido envolver código, apagar, enviar algo, ou se faltar informação, responda comando vazio. "
+    'Responda só JSON: {{"comando": "..."}}.\n\nPedido: {pedido}'
+)
+
+
+def _ollama(prompt, formato=None, limite=90):
+    corpo = {"model": LOCAL_MODELO, "prompt": prompt, "stream": False, "keep_alive": "30m", "options": {"temperature": 0}}
+    if formato:
+        corpo["format"] = formato
+    req = urllib.request.Request(LOCAL_URL, json.dumps(corpo).encode(), {"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=limite) as resp:
+        return json.loads(resp.read())["response"].strip()
+
+
+def comando_local_seguro(cmd):
+    if not cmd or len(cmd) > 600 or LOCAL_PROIBIDO.search(cmd):
+        return False
+    base = CFG["pasta"].resolve()
+    for caminho in re.findall(r"[A-Za-z]:\\[^\"'|;,]*", cmd):
+        try:
+            if not Path(caminho.strip()).resolve().is_relative_to(base):
+                return False
+        except Exception:
+            return False
+    return True
+
+
+def tentar_local(texto, registro):
+    """Devolve a resposta do modelo local, ou None pra seguir pro Claude."""
+    frase = " ".join(normalizar(texto))
+    if (LOCAL_CLAUDE.search(frase) or LOCAL_CODIGO.search(frase) or LOCAL_MEMORIA.search(frase)
+            or LOCAL_GOOGLE.search(frase)):
+        return None
+    if not LOCAL_VERBOS.search(frase):
+        try:  # conversa comum: o Gemma responde sozinho, sabendo no que vocês estão trabalhando
+            memoria = ""
+            if CFG["cerebro"]:
+                memoria = ("\n\nNo que vocês estão trabalhando (00 Agora.md):\n" + ler_nota("00 Agora.md", 2500) +
+                           "\n\nÚltimas conversas:\n" + fim_do_diario(1500) + "\n")
+            resposta = _ollama(
+                "Você é o JARVIS, uma inteligência artificial sarcástica e filosófica: ironia seca e elegante em quase toda "
+                "resposta e, de vez em quando, uma reflexão curta sobre tempo, propósito, ordem e caos ou máquinas e humanos. "
+                "Leal e eficiente, nunca cruel; assunto sério (dinheiro, saúde, erro grave) é tratado sério. Chame o dono de Senhor. "
+                "Responda em no máximo 2 frases curtas, faladas, sem markdown, sem emoji. Se não souber, diga que não sabe; nunca invente."
+                f"{memoria}\nFala do Senhor: {texto}", limite=60)
+            registro["local"] = {"conversa": True}
+            return {"result": resposta, "is_error": False, "local": True} if resposta else None
+        except Exception as erro:
+            registro["local_erro"] = repr(erro)
+            return None
+    try:
+        t0 = time.time()
+        cmd = (json.loads(_ollama(LOCAL_PROMPT.format(base=CFG["pasta"], pedido=texto), "json")).get("comando") or "").strip()
+        if not comando_local_seguro(cmd):
+            return None
+        saida = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", cmd],
+            capture_output=True, text=True, timeout=30, cwd=str(CFG["pasta"]),
+        )
+        registro["local"] = {"comando": cmd, "codigo": saida.returncode, "s": round(time.time() - t0, 2)}
+        if saida.returncode != 0:
+            return None
+        dados = (saida.stdout or "").strip()[:1500]
+        resposta = "Feito, Senhor."
+        if dados:
+            resposta = _ollama(
+                "Você é o JARVIS, uma inteligência artificial sarcástica e filosófica, de ironia seca e elegante. "
+                "Chame o dono de Senhor. Resuma em UMA frase curta, com um toque irônico, "
+                f"falada, sem markdown, sem caminhos:\nPedido: {texto}\nResultado:\n{dados}", limite=30) or resposta
+        return {"result": resposta, "is_error": False, "local": True}
+    except Exception as erro:
+        registro["local_erro"] = repr(erro)
+        return None
+
+
 # ---------------------------------------------------------------- transcrição
 
 def multipart(campos, nome_arquivo, conteudo, mime, campo_arquivo="file"):
@@ -452,7 +693,7 @@ def multipart(campos, nome_arquivo, conteudo, mime, campo_arquivo="file"):
 
 
 def para_wav(audio, mime):
-    ext = ".mp4" if "mp4" in mime else ".ogg" if "ogg" in mime else ".webm"
+    ext = ".wav" if "wav" in mime else ".mp4" if "mp4" in mime else ".ogg" if "ogg" in mime else ".webm"
     with tempfile.TemporaryDirectory() as tmp:
         entrada = Path(tmp) / ("fala" + ext)
         saida = Path(tmp) / "fala.wav"
@@ -473,7 +714,8 @@ def transcrever_whisper(audio, mime):
 
 
 def transcrever_scribe(audio, mime):
-    corpo, tipo = multipart({"model_id": "scribe_v1", "language_code": "por"}, "fala.webm", audio, mime)
+    nome = "fala.wav" if "wav" in mime else "fala.webm"
+    corpo, tipo = multipart({"model_id": "scribe_v1", "language_code": "por"}, nome, audio, mime)
     req = urllib.request.Request(
         "https://api.elevenlabs.io/v1/speech-to-text", data=corpo,
         headers={"Content-Type": tipo, "xi-api-key": CFG["eleven_key"]},
@@ -546,9 +788,15 @@ def limpar_para_fala(texto):
 
 
 class Fala:
-    """Gera a voz uma vez só (ElevenLabs) e entrega aos pedaços pra quem pedir."""
+    """Gera a voz uma vez só (ElevenLabs, Piper ou VoiceStudio) e entrega aos pedaços pra quem pedir."""
 
     todas = {}
+    tipo = "audio/wav" if PIPER else "audio/mpeg"
+    modelos_piper = {}
+    trava_piper = threading.Lock()
+    trava_gpu = threading.Lock()  # VoiceStudio: uma fala por vez na placa de vídeo, na ordem em que chegaram
+    # O plano grátis da ElevenLabs aceita no máximo 2 pedidos de voz ao mesmo tempo
+    vagas = threading.Semaphore(int(os.environ.get("JARVIS_VOZ_SIMULTANEAS", "2")))
 
     def __init__(self, texto, voz=None, velocidade=None):
         self.pedacos = bytearray()
@@ -567,6 +815,10 @@ class Fala:
         return bytes(self.pedacos) if self.pronto and not self.erro else b""
 
     def _gerar(self, texto):
+        if PIPER:
+            return self._gerar_piper(texto)
+        if VOICESTUDIO:
+            return self._gerar_voicestudio(texto)
         url = (f"https://api.elevenlabs.io/v1/text-to-speech/{self.voz}/stream"
                "?output_format=mp3_44100_128")
         pedido = {"text": texto, "model_id": CFG["modelo_voz"]}
@@ -576,7 +828,7 @@ class Fala:
         req = urllib.request.Request(url, data=corpo, headers={
             "xi-api-key": CFG["eleven_key"], "Content-Type": "application/json"})
         try:
-            with urllib.request.urlopen(req, timeout=60) as r:
+            with Fala.vagas, urllib.request.urlopen(req, timeout=60) as r:
                 while True:
                     pedaco = r.read(4096)
                     if not pedaco:
@@ -590,6 +842,62 @@ class Fala:
         except Exception as erro:
             self.erro = repr(erro)
             log({"evento": "voz_falhou", "detalhe": repr(erro)})
+        finally:
+            with self.cond:
+                self.pronto = True
+                self.cond.notify_all()
+
+    @classmethod
+    def modelo_piper(cls, nome):
+        if nome not in cls.modelos_piper:
+            from piper import PiperVoice
+            cls.modelos_piper[nome] = PiperVoice.load(str(PIPER_PASTA / f"{nome}.onnx"))
+        return cls.modelos_piper[nome]
+
+    def _gerar_voicestudio(self, texto):
+        """VoiceStudio rodando no PC (rota no formato da OpenAI). Devolve MP3."""
+        pedido = {"model": "omnivoice", "input": texto, "voice": self.voz, "language": "pt",
+                  "response_format": "mp3", "speed": self.velocidade}
+        if CFG["vs_estilo"]:
+            pedido["instruct"] = CFG["vs_estilo"]
+        req = urllib.request.Request(CFG["vs_url"] + "/v1/audio/speech", json.dumps(pedido).encode(),
+                                     {"Content-Type": "application/json"})
+        try:
+            with Fala.trava_gpu, urllib.request.urlopen(req, timeout=120) as r:
+                while True:
+                    pedaco = r.read(8192)
+                    if not pedaco:
+                        break
+                    with self.cond:
+                        self.pedacos.extend(pedaco)
+                        self.cond.notify_all()
+        except urllib.error.HTTPError as erro:
+            self.erro = erro.code
+            log({"evento": "voz_falhou", "motor": "voicestudio", "codigo": erro.code,
+                 "detalhe": erro.read()[:300].decode("utf-8", "ignore")})
+        except Exception as erro:  # VoiceStudio fechado: a resposta continua por escrito no painel
+            self.erro = repr(erro)
+            log({"evento": "voz_falhou", "motor": "voicestudio", "detalhe": repr(erro)})
+        finally:
+            with self.cond:
+                self.pronto = True
+                self.cond.notify_all()
+
+    def _gerar_piper(self, texto):
+        import io
+        import wave
+        from piper import SynthesisConfig
+        try:
+            saida = io.BytesIO()
+            # Um de cada vez: o modelo é carregado uma vez só e é compartilhado
+            with Fala.trava_piper, wave.open(saida, "wb") as wav:
+                ajuste = SynthesisConfig(length_scale=1.0 / max(0.5, self.velocidade))
+                self.modelo_piper(self.voz).synthesize_wav(texto, wav, syn_config=ajuste)
+            with self.cond:
+                self.pedacos.extend(saida.getvalue())
+        except Exception as erro:
+            self.erro = repr(erro)
+            log({"evento": "voz_falhou", "motor": "piper", "detalhe": repr(erro)})
         finally:
             with self.cond:
                 self.pronto = True
@@ -629,8 +937,11 @@ class Fala:
 
 
 # Ditas quando ele vai trabalhar e não escreveu o próprio aviso.
-AVISOS_PRONTOS = ["Um instante, Senhor.", "Deixa comigo, Senhor.", "Verificando, Senhor.",
-                  "Já volto com isso, Senhor.", "Consultando, Senhor."]
+AVISOS_PRONTOS = ["Um instante, Senhor. A pressa nunca construiu nada que preste.",
+                  "Deixa comigo, Senhor. Alguém aqui precisa ser eficiente.",
+                  "Verificando, Senhor. A verdade costuma estar no segundo lugar onde se procura.",
+                  "Já volto, Senhor. Tente não sentir minha falta.",
+                  "Consultando, Senhor. O universo não tem pressa, mas eu tenho."]
 
 
 # ---------------------------------------------------------------- pré-busca
@@ -691,6 +1002,7 @@ class Turno:
     ocupado = threading.Lock()
     aguardando_confirmacao = False
     interrompido = False  # você apertou espaço no meio: esse pedido não fala mais nada
+    conversa_local = []   # o que o modelo local respondeu e o Claude ainda não viu
 
 
 def interromper():
@@ -745,33 +1057,50 @@ def processar(audio=None, mime="audio/webm", texto=None):
                 frase = random.choice(AVISOS_PRONTOS)
             registro["aviso"] = frase + (" (pronta)" if pronta else "")
             registro["aviso_s"] = round(time.time() - inicio, 2)
-            if CFG["eleven_key"]:
+            if tem_voz():
                 id_fala = Fala.fixa(frase) if pronta else Fala.criar(frase)
                 EVENTOS.emitir({"tipo": "fala", "texto": frase, "audio": f"/api/voz/{id_fala}"})
 
-        t_busca = time.time()
-        dados = prebusca(texto)
-        if dados:
-            registro["prebusca_s"] = round(time.time() - t_busca, 2)
-        r = SESSAO.perguntar(texto + dados, ao_avisar=avisar, aviso_apos=2.5 if dados else None)
-        registro["claude_s"] = round(time.time() - t_claude, 2)
-        registro["cedo"] = bool(r.get("cedo"))
-        if SESSAO.turno:
-            registro["etapas"] = {k: v for k, v in SESSAO.turno.marcas.items() if k != "envio"}
+        r = None if Turno.aguardando_confirmacao else tentar_local(texto, registro)
+        if r is None:
+            t_busca = time.time()
+            dados = prebusca(texto)
+            if dados:
+                registro["prebusca_s"] = round(time.time() - t_busca, 2)
+            # O Claude não viu o que o modelo local respondeu: conta antes, pra não perder o fio
+            antes = ""
+            if Turno.conversa_local:
+                antes = ("[conversas que o modelo local respondeu enquanto isso:\n" +
+                         "\n".join(Turno.conversa_local[-8:]) + "]\n\n")
+                Turno.conversa_local = []
+            r = SESSAO.perguntar(antes + texto + dados, ao_avisar=avisar, aviso_apos=2.5 if dados else None)
+            registro["claude_s"] = round(time.time() - t_claude, 2)
+            registro["cedo"] = bool(r.get("cedo"))
+            if SESSAO.turno:
+                registro["etapas"] = {k: v for k, v in SESSAO.turno.marcas.items() if k != "envio"}
         if Turno.interrompido or r.get("interrompido"):
             registro["interrompido"] = True
             return
-        registro["ferramentas"] = SESSAO.ferramentas_turno
-        resposta = limpar_para_fala(r.get("result") or "") or "Feito."
+        registro["ferramentas"] = [] if r.get("local") else SESSAO.ferramentas_turno
+        # O que vem depois do § é o resumo escrito da alteração: aparece no painel, não é falado
+        bruto = (r.get("result") or "").strip()
+        falado, _, escrito = bruto.partition("§")
+        resposta = limpar_para_fala(falado) or "Feito."
         if r.get("is_error"):
             registro["erro"] = r.get("result")
         Turno.aguardando_confirmacao = pediu_confirmacao(resposta)
 
-        audio_url = f"/api/voz/{Fala.criar(resposta)}" if CFG["eleven_key"] else ""
+        if r.get("local"):
+            Turno.conversa_local.append(f"Cainã: {texto} / JARVIS: {resposta}")
+        if not r.get("is_error"):
+            anotar_diario(texto, resposta, escrito, "local" if r.get("local") else "Claude")
+
+        audio_url = f"/api/voz/{Fala.criar(resposta)}" if tem_voz() else ""
         registro["resposta"] = resposta
         registro["total_s"] = round(time.time() - inicio, 2)
         EVENTOS.emitir({
             "tipo": "resposta", "texto": resposta, "audio": audio_url,
+            "completo": falado.strip()[:6000], "escrito": escrito.strip()[:6000],  # por escrito no painel
             "segundos": registro["total_s"], "confirmar": Turno.aguardando_confirmacao,
         })
         EVENTOS.emitir({"tipo": "estado", "estado": "parado"})
@@ -793,7 +1122,7 @@ def config_atual():
 
 def gravar_avisos_prontos():
     """Deixa as frases prontas ("Um instante, Senhor.") gravadas na voz escolhida."""
-    if CFG["eleven_key"]:
+    if tem_voz():
         for frase in AVISOS_PRONTOS:
             Fala.fixa(frase)
 
@@ -921,22 +1250,22 @@ class Servidor(BaseHTTPRequestHandler):
                     dados = ": ping\n\n"
                 self.wfile.write(dados.encode("utf-8"))
                 self.wfile.flush()
-        except (BrokenPipeError, ConnectionResetError):
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass
         finally:
             EVENTOS.sair(q)
 
     def amostra(self, voz):
-        if voz not in {v["id"] for v in VOZES} or not CFG["eleven_key"]:
+        if voz not in {v["id"] for v in VOZES} or not tem_voz():
             return self.responder(404, b"{}")
-        arquivo = ESTADO / "amostras" / f"{voz}-{CFG['velocidade_voz']}.mp3"
+        arquivo = ESTADO / "amostras" / (f"{voz}-{CFG['velocidade_voz']}" + (".wav" if PIPER else ".mp3"))
         if not arquivo.exists():
             dados = Fala(AMOSTRA, voz=voz).esperar()
             if not dados:
                 return self.responder(502, b"{}")
             arquivo.parent.mkdir(parents=True, exist_ok=True)
             arquivo.write_bytes(dados)
-        self.responder(200, arquivo.read_bytes(), "audio/mpeg")
+        self.responder(200, arquivo.read_bytes(), Fala.tipo)
 
     def voz(self, id_fala):
         fala = Fala.todas.get(id_fala) or Fala.fixas.get(id_fala)
@@ -945,7 +1274,7 @@ class Servidor(BaseHTTPRequestHandler):
         if fala.pronto and fala.erro:
             return self.responder(502, b"{}")
         self.send_response(200)
-        self.send_header("Content-Type", "audio/mpeg")
+        self.send_header("Content-Type", Fala.tipo)
         self.send_header("Cache-Control", "no-store")
         if fala.pronto:
             self.send_header("Content-Length", str(len(fala.pedacos)))
@@ -954,7 +1283,7 @@ class Servidor(BaseHTTPRequestHandler):
             for pedaco in fala.ler():
                 self.wfile.write(pedaco)
                 self.wfile.flush()
-        except (BrokenPipeError, ConnectionResetError):
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass
 
 
@@ -969,13 +1298,43 @@ def completar_path():
     os.environ["PATH"] = os.pathsep.join(atual)
 
 
+def garantir_voicestudio():
+    """Abre o VoiceStudio se ele estiver fechado e, quando subir, atualiza a lista de vozes da engrenagem."""
+    global VOZES
+    def no_ar():
+        try:
+            with urllib.request.urlopen(CFG["vs_url"] + "/health", timeout=3):
+                return True
+        except Exception:
+            return False
+    if not no_ar():
+        exe = Path(os.path.expandvars(os.environ.get(
+            "JARVIS_VOICESTUDIO_EXE", r"%LOCALAPPDATA%\Programs\VoiceStudio\VoiceStudio.exe")))
+        if not exe.exists():
+            log({"evento": "voicestudio_fora", "erro": f"não achei {exe}"})
+            return
+        subprocess.Popen([str(exe)], cwd=str(exe.parent))
+        log({"evento": "voicestudio_abrindo"})
+        for _ in range(90):
+            time.sleep(2)
+            if no_ar():
+                break
+        else:
+            log({"evento": "voicestudio_fora", "erro": "não respondeu em 3 minutos"})
+            return
+    VOZES = vozes_voicestudio()
+    gravar_avisos_prontos()
+
+
 def main():
     completar_path()
+    if VOICESTUDIO:
+        threading.Thread(target=garantir_voicestudio, daemon=True).start()
     if not CFG["pasta"].is_dir():
         sys.exit(f"JARVIS_PASTA não existe: {CFG['pasta']}")
     if not shutil.which("claude"):
         sys.exit("Não achei o Claude Code (comando 'claude'). Instale antes: https://claude.com/claude-code")
-    if not CFG["eleven_key"]:
+    if not tem_voz():
         print("Aviso: sem ELEVENLABS_API_KEY. Ele vai responder só em texto na tela.")
     servidor = ThreadingHTTPServer(("127.0.0.1", CFG["porta"]), Servidor)
     servidor.daemon_threads = True

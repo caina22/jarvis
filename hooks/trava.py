@@ -43,6 +43,15 @@ BASH_ARRISCADO = [
     r"\bnpm\s+publish\b", r"\bvercel\b", r"\bsupabase\b.*\b(delete|reset|push)\b",
     r"\bgh\s+\w+\s+(create|delete|merge|edit|close|comment)\b", r"\bosascript\b", r"\bdd\b", r"\btee\b",
 ]
+# O mesmo pro PowerShell (Windows): cmdlets e aliases que apagam, movem, escrevem ou mandam dados pra fora
+POWERSHELL_ARRISCADO = BASH_ARRISCADO + [
+    r"\b(Remove|Move|Rename|Clear|Set|New|Copy|Add|Out|Stop|Restart|Start)-\w+",
+    r"\b(Invoke-WebRequest|Invoke-RestMethod|iwr|irm|Invoke-Expression|iex|Invoke-Command|icm)\b",
+    r"\b(del|erase|rd|rmdir|ri|ren|rni|move|mi|copy|cp|cpi|ni|mkdir|md|sc|ac|spps|taskkill)\b",
+    r"\b(Format|Clear|Initialize)-(Volume|Disk)\b", r"\breg(\.exe)?\s+(add|delete|import)\b",
+    r"\bschtasks\b", r"\bshutdown\b", r"\bwinget\b", r"\bcmd(\.exe)?\s+/c\b", r"\bpowershell(\.exe)?\b",
+    r"\bpwsh\b", r"\bStart-Process\b", r"\bSend-MailMessage\b",
+]
 # Zernio (redes sociais): só consulta passa direto
 ZERNIO_LEITURA = {"check", "status", "accounts", "yt-playlists", "tiktok-info", "li-orgs", "posts",
                   "post-get", "autos", "auto-get", "auto-logs"}
@@ -105,6 +114,14 @@ def main():
         caminho = entrada.get("file_path") or entrada.get("notebook_path") or ""
         if not dentro_da_pasta(caminho, pasta):
             barrar("escrever fora da pasta de trabalho")
+        return
+
+    if nome == "PowerShell":  # Windows: o Claude Code usa PowerShell no lugar do Bash
+        cmd = entrada.get("command", "")
+        if zernio_arriscado(cmd):
+            barrar("publicar, agendar ou mudar algo nas redes sociais")
+        if any(re.search(p, cmd, re.I) for p in POWERSHELL_ARRISCADO) or redireciona_pra_arquivo(cmd):
+            barrar("esse comando de terminal")
         return
 
     if nome == "Bash":

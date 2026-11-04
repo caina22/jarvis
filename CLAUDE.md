@@ -25,7 +25,8 @@ microfone sempre aberto (web/index.html)
 
 | Arquivo | O que é |
 |---|---|
-| `server.py` | O coração. Servidor HTTP local (porta 8790), sessão do Claude Code, roteador Gemma/Claude, transcrição, motores de voz, diário, eventos pro painel. Só biblioteca padrão do Python (mais `piper-tts` se usar o Piper). |
+| `server.py` | O coração. Servidor HTTP local (porta 8790), sessão do Claude Code, roteador Gemma/Claude, transcrição, motores de voz, diário, eventos pro painel. Só biblioteca padrão do Python (mais `piper-tts` se usar o Piper). Ação fixa `enviar_resumo_proprio`: o Gemma dispara o envio de `.estado/resumo_pendente.txt` só para a conversa com você mesmo. |
+| `whatsapp_resumo.py` | Envia um texto para a conversa "(você)" no WhatsApp Desktop. Usa `pywinauto` (instalado no Python 3.12 do sistema, fora da biblioteca padrão). `--teste` só acha a conversa, sem enviar. Destino fixo: nenhum outro contato é aceito. |
 | `persona.md` | Personalidade e regras do assistente (não vai pro git). Sarcástico e filosófico, chama o dono de "Senhor". Regras do segundo cérebro, do Google e do `§`. |
 | `.env` | Toda a configuração (não vai pro git). **Tem a chave da ElevenLabs: nunca mostrar, copiar ou commitar.** |
 | `web/index.html` | A tela: esfera, escuta contínua com detecção de voz, mudo, painel de atividade, engrenagem. |

@@ -629,9 +629,137 @@ def comando_local_seguro(cmd):
     return True
 
 
+# ---------------------------------------------------------------- WhatsApp: resumo pra você mesmo
+# Ação fixa: o Gemma só dispara o envio de um texto já preparado, sempre para a conversa com você mesmo.
+# Nenhum comando livre é executado. O texto fica em .estado/resumo_pendente.txt (escrito pelo Claude).
+RESUMO_PENDENTE = RAIZ / ".estado" / "resumo_pendente.txt"
+RESUMO_ENVIO = RAIZ / ".estado" / "resumo_envio.txt"
+WHATSAPP_RESUMO = RAIZ / "whatsapp_resumo.py"
+PEDIDO_RESUMO = re.compile(r"resum\w*.*\bwhatsapp\b|\bwhatsapp\b.*\bresum\w*")
+LEITURA_WHATSAPP = RAIZ / "whatsapp_leitura.py"
+ANEXO_WHATSAPP = RAIZ / "whatsapp_anexo.py"
+RESUMO_LEITURA = RAIZ / ".estado" / "resumo_leitura.json"
+RESUMO_MP3 = RAIZ / ".estado" / "resumo_completo.mp3"
+# Mensagens com cara de senha ou código nunca vão para o modelo nem para o texto
+SUSPEITO = re.compile(r"senha|c[oó]digo|token|\bpin\b|\bcpf\b|\b\d{4,8}\b", re.I)
+
+
+def _resumir_com_gemma(individuais):
+    """O Gemma escreve uma frase por conversa sem resposta. Quem não vier válido fica sem resumo."""
+    itens = []
+    for x in individuais:
+        if x.get("ultimo") != "outro":
+            continue
+        trecho = " | ".join(x.get("textos") or [])[:400]
+        if not trecho or SUSPEITO.search(trecho):
+            continue
+        itens.append({"nome": x["nome"], "mensagem": trecho})
+    if not itens:
+        return {}
+    prompt = ("Você resume mensagens recebidas no WhatsApp. Para cada item, escreva UMA frase curta em português "
+              "dizendo o assunto. Não copie senhas nem códigos. Responda só JSON no formato "
+              '{"resumos": [{"nome": "...", "resumo": "..."}]}.\n\n' + json.dumps(itens, ensure_ascii=False))
+    try:
+        dados = json.loads(_ollama(prompt, "json", limite=150))
+    except Exception as erro:
+        log({"evento": "resumo_gemma_falhou", "erro": repr(erro)})
+        return {}
+    nomes = {i["nome"] for i in itens}
+    saida = {}
+    for r in dados.get("resumos", []) if isinstance(dados, dict) else []:
+        nome, resumo = str(r.get("nome", "")), str(r.get("resumo", "")).strip()
+        if nome in nomes and resumo and len(resumo) <= 140 and not SUSPEITO.search(resumo):
+            saida[nome] = resumo
+    return saida
+
+
+def _montar_resumo(dados, resumos):
+    """Texto fixo, mesmo formato sempre. O Gemma só preenche as frases de cada conversa."""
+    # só conversas individuais sem resposta: grupos, importantes e contagens ficam de fora
+    individuais = [x for x in dados.get("individuais", []) if x.get("ultimo") == "outro"]
+    hora = time.strftime("%H:%M")
+    if not individuais:
+        texto = f"Olá Cainã.\nHorário atual: {hora}\nNão há conversas individuais sem resposta."
+        return texto, "Olá Cainã. Não há conversas individuais sem resposta."
+    linhas = ["Olá Cainã.", f"Horário atual: {hora}", "Elas são:"]
+    falas = ["Olá Cainã."]
+    for x in individuais:
+        frase = resumos.get(x["nome"]) or "mensagem recebida, sem resumo"
+        linhas.append(f"- {x['nome']}: {frase}")
+        falas.append(f"{x['nome']}: {frase}.")
+    return "\n".join(linhas), " ".join(falas)
+
+
+def _voz_ultron(fala):
+    """Gera o MP3 com o perfil de voz configurado (ultron) no VoiceStudio."""
+    pedido = {"model": "omnivoice", "input": fala, "voice": CFG["vs_voz"], "language": "pt",
+              "response_format": "mp3", "speed": 1.0}
+    req = urllib.request.Request(CFG["vs_url"] + "/v1/audio/speech", json.dumps(pedido).encode(),
+                                 {"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=300) as r:
+        RESUMO_MP3.write_bytes(r.read())
+    return RESUMO_MP3.stat().st_size > 0
+
+
+def resumo_whatsapp_completo(registro):
+    """Lê as não lidas, pede o resumo ao Gemma, envia o texto e o áudio (voz ultron) para você mesmo."""
+    proc = subprocess.run([sys.executable, str(LEITURA_WHATSAPP), str(RESUMO_LEITURA)],
+                          capture_output=True, text=True, timeout=900)
+    if proc.returncode != 0 or not RESUMO_LEITURA.exists():
+        return False, "não consegui ler o WhatsApp"
+    dados = json.loads(RESUMO_LEITURA.read_text(encoding="utf-8"))
+    resumos = _resumir_com_gemma(dados.get("individuais", []))
+    texto, fala = _montar_resumo(dados, resumos)
+    registro["local"] = {"acao": "resumo_whatsapp_completo", "conversas": dados.get("linhas_vistas", 0),
+                         "resumidas_pelo_gemma": len(resumos)}
+    ok, detalhe = enviar_resumo_proprio(texto)
+    if not ok:
+        return False, "não consegui enviar o texto: " + detalhe
+    try:
+        if not _voz_ultron(fala):
+            return True, "texto enviado, sem áudio"
+    except Exception as erro:
+        registro["local_erro"] = repr(erro)
+        return True, "texto enviado, o áudio falhou"
+    anexo = subprocess.run([sys.executable, str(ANEXO_WHATSAPP), str(RESUMO_MP3)],
+                           capture_output=True, text=True, timeout=180)
+    if anexo.returncode != 0:
+        return True, "texto enviado, o áudio não foi anexado"
+    return True, "texto e áudio enviados"
+
+
+def enviar_resumo_proprio(texto):
+    """Envia o texto só para a conversa com você mesmo. Devolve (ok, detalhe)."""
+    limpo = "".join(c for c in texto if c == "\n" or c >= " ").strip()
+    if not limpo or len(limpo) > 1200:
+        return False, "texto vazio ou longo demais"
+    RESUMO_ENVIO.parent.mkdir(exist_ok=True)
+    RESUMO_ENVIO.write_text(limpo, encoding="utf-8")
+    try:
+        saida = subprocess.run([sys.executable, str(WHATSAPP_RESUMO), str(RESUMO_ENVIO)],
+                               capture_output=True, text=True, timeout=180)
+    except subprocess.TimeoutExpired:
+        return False, "tempo esgotado"
+    return saida.returncode == 0, (saida.stdout or saida.stderr or "").strip()[-300:]
+
+
 def tentar_local(texto, registro):
     """Devolve a resposta do modelo local, ou None pra seguir pro Claude."""
     frase = " ".join(normalizar(texto))
+    if PEDIDO_RESUMO.search(frase) and RESUMO_PENDENTE.exists():
+        texto_resumo = RESUMO_PENDENTE.read_text(encoding="utf-8")
+        ok, detalhe = enviar_resumo_proprio(texto_resumo)
+        registro["local"] = {"acao": "enviar_resumo_proprio", "ok": ok, "detalhe": detalhe}
+        if ok:
+            RESUMO_PENDENTE.unlink()
+            return {"result": "Enviado para você mesmo, Senhor.", "is_error": False, "local": True}
+        return {"result": "Não consegui enviar o resumo, Senhor. O WhatsApp está aberto?", "is_error": False, "local": True}
+    if PEDIDO_RESUMO.search(frase):
+        ok, detalhe = resumo_whatsapp_completo(registro)
+        registro.setdefault("local", {})["detalhe"] = detalhe
+        if ok:
+            return {"result": f"Feito, Senhor. {detalhe.capitalize()}.", "is_error": False, "local": True}
+        return {"result": "Não consegui montar o resumo, Senhor. O WhatsApp está aberto?", "is_error": False, "local": True}
     if (LOCAL_CLAUDE.search(frase) or LOCAL_CODIGO.search(frase) or LOCAL_MEMORIA.search(frase)
             or LOCAL_GOOGLE.search(frase)):
         return None

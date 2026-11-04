@@ -539,6 +539,10 @@
 
   // Fila de falas: o aviso rápido ("Um instante, Senhor.") e depois a resposta.
   let fila = [], tocando = false, turnoAberto = false;
+  // No celular, com o microfone aberto o navegador entra em "modo ligação" e a voz sai muda
+  // (ou no alto-falante de chamada). Então o microfone é solto enquanto ele fala e volta depois.
+  const CELULAR = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  let micSoltoPraFalar = false;
 
   function pararFala() {
     fila = [];
@@ -547,6 +551,10 @@
       const f = falaAtual;
       falaAtual = null;
       try { f.onended = null; f.stop(); } catch (e) {}
+    }
+    if (micSoltoPraFalar) {  // cortou a fala no meio: devolve o microfone
+      micSoltoPraFalar = false;
+      setTimeout(() => ligarMicrofone(), 300);
     }
   }
 
@@ -574,12 +582,23 @@
       tocando = false;
       liberadoEm = performance.now() + 600;  // não escuta o finzinho da própria voz
       mudarEstado(turnoAberto ? "pensando" : "parado");
+      if (micSoltoPraFalar) {
+        micSoltoPraFalar = false;
+        setTimeout(() => { if (!tocando) ligarMicrofone(); }, 300);
+      }
       return;
     }
     tocando = true;
     try {
       const buffer = await pendente;
       if (!tocando) return;  // cancelada (você começou a falar)
+      if (CELULAR && (micStream || ligandoMic)) {
+        desligarMicrofone();
+        micSoltoPraFalar = true;
+        await new Promise((ok) => setTimeout(ok, 250));  // o Android sai do "modo ligação"
+        if (!tocando) return;
+      }
+      if (audioCtx.state === "suspended") await prepararAudio();
       if (audioCtx.state !== "running") {
         throw new Error("som bloqueado pelo navegador (estado " + audioCtx.state + ")");
       }
@@ -595,7 +614,7 @@
       falaAtual = fonte;
       mudarEstado("falando");
       fonte.start();
-      diag("voz_tocou", buffer.duration.toFixed(1) + " s");
+      diag("voz_tocou", buffer.duration.toFixed(1) + " s" + (CELULAR ? " (celular)" : ""));
     } catch (erro) {
       diag("voz_falhou", erro && erro.message ? erro.message : erro);
       avisar("Não consegui tocar a voz. Clique na janela e tente de novo.");

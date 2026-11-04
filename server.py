@@ -7,6 +7,8 @@ pasta de trabalho, e a resposta volta falada pelo ElevenLabs.
 
 Só usa a biblioteca padrão do Python (3.9+). Rodar:  python3 server.py
 """
+import hashlib
+import hmac
 import json
 import os
 import queue
@@ -22,6 +24,7 @@ import threading
 import time
 import unicodedata
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 import webbrowser
@@ -59,6 +62,8 @@ def carregar_config():
     return {
         "pasta": pasta,
         "porta": int(base.get("JARVIS_PORTA", "8790")),
+        # Senha de acesso de fora do PC (celular pelo Tailscale). Vazio = só o próprio PC entra.
+        "token": base.get("JARVIS_TOKEN", ""),
         "modelo": base.get("JARVIS_MODELO", "sonnet"),
         "esforco": base.get("JARVIS_ESFORCO", "low"),
         # leve: o Claude abre numa pasta vazia com a sua pasta anexada (responde em ~1 s);
@@ -160,11 +165,15 @@ def ler_nota(nome, limite=6000):
         return ""
 
 
-def fim_do_diario(limite):
-    """As últimas conversas anotadas (do dia mais recente)."""
+def fim_do_diario(limite, sem_local=False):
+    """As últimas conversas anotadas. sem_local tira as respostas do modelo local,
+    pra ele não copiar os próprios erros (o 2B repetia a mesma frase em loop)."""
     try:
         dias = sorted((CFG["cerebro"] / "Diário").glob("*.md"))
-        return dias[-1].read_text(encoding="utf-8")[-limite:].strip() if dias else ""
+        texto = dias[-1].read_text(encoding="utf-8") if dias else ""
+        if sem_local:
+            texto = "\n".join(l for l in texto.splitlines() if not l.startswith("JARVIS (local)"))
+        return texto[-limite:].strip()
     except (OSError, TypeError):
         return ""
 
@@ -763,18 +772,20 @@ def tentar_local(texto, registro):
     if (LOCAL_CLAUDE.search(frase) or LOCAL_CODIGO.search(frase) or LOCAL_MEMORIA.search(frase)
             or LOCAL_GOOGLE.search(frase)):
         return None
+    if len(frase.split()) > 30:  # pedido longo ou complexo: Claude
+        return None
     if not LOCAL_VERBOS.search(frase):
         try:  # conversa comum: o Gemma responde sozinho, sabendo no que vocês estão trabalhando
             memoria = ""
             if CFG["cerebro"]:
                 memoria = ("\n\nNo que vocês estão trabalhando (00 Agora.md):\n" + ler_nota("00 Agora.md", 2500) +
-                           "\n\nÚltimas conversas:\n" + fim_do_diario(1500) + "\n")
+                           "\n\nÚltimas conversas (só contexto; nunca repita uma resposta antiga):\n" + fim_do_diario(800, sem_local=True) + "\n")
             resposta = _ollama(
                 "Você é o JARVIS, uma inteligência artificial sarcástica e filosófica: ironia seca e elegante em quase toda "
                 "resposta e, de vez em quando, uma reflexão curta sobre tempo, propósito, ordem e caos ou máquinas e humanos. "
                 "Leal e eficiente, nunca cruel; assunto sério (dinheiro, saúde, erro grave) é tratado sério. Chame o dono de Senhor. "
                 "Responda em no máximo 2 frases curtas, faladas, sem markdown, sem emoji. Se não souber, diga que não sabe; nunca invente."
-                f"{memoria}\nFala do Senhor: {texto}", limite=60)
+                f"{memoria}\nResponda ao que o Senhor acabou de dizer, sem repetir respostas anteriores.\nFala do Senhor: {texto}", limite=60)
             registro["local"] = {"conversa": True}
             return {"result": resposta, "is_error": False, "local": True} if resposta else None
         except Exception as erro:
@@ -1287,9 +1298,105 @@ TIPOS = {".html": "text/html; charset=utf-8", ".js": "application/javascript; ch
          ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon"}
 
 
+# ---------------------------------------------------------------- acesso de fora do PC (celular)
+# No próprio PC (localhost, sem proxy na frente) entra direto, como sempre.
+# Por qualquer outro caminho (o celular pelo Tailscale Serve) precisa do JARVIS_TOKEN do .env:
+# digitado uma vez na tela /entrar, vira um cookie de 90 dias. O cookie guarda um hash, não o token.
+COOKIE = "jarvis_sessao"
+LOCAIS = {f"localhost:{CFG['porta']}", f"127.0.0.1:{CFG['porta']}"}
+TENTATIVAS = {"falhas": 0, "bloqueado_ate": 0.0, "trava": threading.Lock()}
+
+TELA_ENTRAR = """<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>JARVIS</title>
+<style>
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+background:#05070b;color:#d8e4f0;font-family:system-ui,sans-serif}
+form{width:min(320px,calc(100vw - 32px));display:flex;flex-direction:column;gap:12px}
+h1{font-weight:300;letter-spacing:.3em;text-align:center;margin:0 0 8px}
+input,button{font-size:16px;padding:12px;border-radius:10px;border:1px solid #23415c;background:#0b1520;color:inherit}
+button{background:#1b4b73;border-color:#1b4b73;cursor:pointer}
+p{margin:0;min-height:1.2em;color:#ff8a8a;text-align:center;font-size:14px}
+</style></head><body><form method="post" action="/entrar">
+<h1>JARVIS</h1>
+<input type="password" name="token" placeholder="Senha de acesso" autocomplete="current-password" autofocus required>
+<button type="submit">Entrar</button><p>{erro}</p></form></body></html>"""
+
+
+def sessao_esperada():
+    if not CFG["token"]:
+        return ""
+    return hashlib.sha256(("jarvis-sessao:" + CFG["token"]).encode()).hexdigest()
+
+
 class Servidor(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
+
+    def do_proprio_pc(self):
+        """Pedido feito no próprio PC, direto (sem o Tailscale nem outro proxy no meio)."""
+        host = (self.headers.get("Host") or "").lower()
+        via_proxy = self.headers.get("X-Forwarded-For") or any(
+            k.lower().startswith("tailscale-") for k in self.headers.keys())
+        return self.client_address[0] == "127.0.0.1" and host in LOCAIS and not via_proxy
+
+    def autorizado(self):
+        if self.do_proprio_pc():
+            return True
+        esperado = sessao_esperada()
+        if not esperado:
+            return False
+        for parte in (self.headers.get("Cookie") or "").split(";"):
+            nome, _, valor = parte.strip().partition("=")
+            if nome == COOKIE and hmac.compare_digest(valor, esperado):
+                return True
+        return False
+
+    def origem_ok(self):
+        """Bloqueia POST vindo de outro site (um site qualquer mandando comando pro JARVIS)."""
+        origem = self.headers.get("Origin")
+        if not origem:
+            return True
+        destino = urllib.parse.urlsplit(origem).netloc.lower()
+        aceitos = {(self.headers.get(h) or "").lower() for h in ("Host", "X-Forwarded-Host")}
+        return destino in aceitos - {""}
+
+    def redirecionar(self, para, cookie=None):
+        self.send_response(303)
+        self.send_header("Location", para)
+        if cookie:
+            self.send_header("Set-Cookie", cookie)
+        self.send_header("Content-Length", "0")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+
+    def tela_entrar(self, codigo=200, erro=""):
+        corpo = TELA_ENTRAR.replace("{erro}", erro).encode("utf-8")
+        self.responder(codigo, corpo, "text/html; charset=utf-8")
+
+    def entrar(self, tamanho):
+        if tamanho > 2000:
+            return self.responder(413, b"{}")
+        corpo = self.rfile.read(tamanho).decode("utf-8", "replace") if tamanho else ""
+        if not CFG["token"]:
+            return self.tela_entrar(503, "Acesso de fora desligado: falta o JARVIS_TOKEN no .env do PC.")
+        with TENTATIVAS["trava"]:
+            if time.time() < TENTATIVAS["bloqueado_ate"]:
+                return self.tela_entrar(429, "Muitas tentativas. Espere 5 minutos.")
+        token = urllib.parse.parse_qs(corpo).get("token", [""])[0]
+        if hmac.compare_digest(token.encode(), CFG["token"].encode()):
+            with TENTATIVAS["trava"]:
+                TENTATIVAS["falhas"] = 0
+            log({"evento": "acesso_liberado"})
+            cookie = f"{COOKIE}={sessao_esperada()}; Path=/; Max-Age=7776000; HttpOnly; Secure; SameSite=Lax"
+            return self.redirecionar("/", cookie)
+        time.sleep(1)
+        with TENTATIVAS["trava"]:
+            TENTATIVAS["falhas"] += 1
+            if TENTATIVAS["falhas"] >= 5:
+                TENTATIVAS["falhas"] = 0
+                TENTATIVAS["bloqueado_ate"] = time.time() + 300
+        log({"evento": "acesso_negado"})
+        self.tela_entrar(401, "Senha errada.")
 
     def responder(self, codigo, corpo=b"", tipo="application/json"):
         self.send_response(codigo)
@@ -1301,6 +1408,12 @@ class Servidor(BaseHTTPRequestHandler):
 
     def do_GET(self):
         caminho = self.path.split("?")[0]
+        if caminho == "/entrar":
+            return self.redirecionar("/") if self.autorizado() else self.tela_entrar()
+        if not self.autorizado():
+            if caminho.startswith("/api/"):
+                return self.responder(401, b'{"entrar":true}')
+            return self.redirecionar("/entrar")
         if caminho == "/api/eventos":
             return self.eventos()
         if caminho == "/api/config":
@@ -1322,6 +1435,12 @@ class Servidor(BaseHTTPRequestHandler):
 
     def do_POST(self):
         tamanho = int(self.headers.get("Content-Length", "0"))
+        if not self.origem_ok():
+            return self.responder(403, b"{}")
+        if self.path == "/entrar":
+            return self.entrar(tamanho)
+        if not self.autorizado():  # checa antes de ler o corpo (áudio pode ser grande)
+            return self.responder(401, b'{"entrar":true}')
         corpo = self.rfile.read(tamanho) if tamanho else b""
         if self.path == "/api/interromper":
             return self.responder(200, json.dumps({"interrompeu": interromper()}).encode())

@@ -68,6 +68,13 @@ Fora do projeto:
 | `JARVIS_MODELO_LOCAL` | `gemma2:2b` | Ollama. O 9B não cabe junto com o VoiceStudio nos 6 GB da RTX 3050. |
 | `JARVIS_CONTEXTO` | `leve` | Claude abre em pasta vazia e anexa a pasta de trabalho. |
 | `JARVIS_TRAVA` | `0` | Trava de confirmação desligada. |
+| `JARVIS_TOKEN` | (secreta) | Senha pra entrar de fora do PC (celular pelo Tailscale Serve). Vazio = só o próprio PC entra. Nunca mostrar nem commitar. |
+
+## Acesso pelo celular
+
+- O servidor continua em `127.0.0.1`. O celular entra pelo **Tailscale Serve** (`tailscale serve --bg 8790`), que dá HTTPS (exigido pelo microfone) e só aceita aparelhos da conta Tailscale do Cainã. **Nunca usar `tailscale funnel`** (publica na internet).
+- No próprio PC (localhost, sem proxy) entra direto. Qualquer outro caminho cai em `/entrar`, pede o `JARVIS_TOKEN` e grava um cookie de 90 dias (hash, não a senha). 5 senhas erradas = 5 minutos bloqueado.
+- POST vindo de outro site (Origin diferente) é recusado com 403.
 
 ## Dependências externas
 

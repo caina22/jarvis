@@ -196,21 +196,30 @@ class Memoria:
         return len(novas)
 
     # -- indexação em segundo plano -------------------------------------
-    def _indexar_fundo(self) -> None:
+    def _indexar_fundo(self, aquecer: bool = False) -> None:
         with self._trava:
             try:
+                if aquecer:
+                    # a pergunta falhou (modelo descarregado e a carga foi
+                    # abortada pelo timeout curto): um embed com timeout longo
+                    # recarrega o modelo mesmo que nenhuma nota tenha mudado
+                    try:
+                        self._vetores(["search_query: aquecer"], TIMEOUT_INDEXAR)
+                    except Exception as e:
+                        self.ultimo_erro = f"falha ao aquecer o modelo: {e}"
                 self._indexar(TIMEOUT_INDEXAR)
             except Exception as e:
                 self.ultimo_erro = f"falha ao indexar: {e}"
 
-    def _atualizar_em_fundo(self) -> None:
+    def _atualizar_em_fundo(self, aquecer: bool = False) -> None:
         """Dispara uma reindexação com timeout longo, se nenhuma estiver
-        rodando. O timeout longo também deixa o Ollama recarregar o modelo."""
+        rodando. O timeout longo também deixa o Ollama recarregar o modelo;
+        com `aquecer`, antes manda um embed de aquecimento (a busca falhou)."""
         with self._trava_fundo:
             if self._fundo is not None and self._fundo.is_alive():
                 return
             self._fundo = threading.Thread(target=self._indexar_fundo,
-                                           name="memoria-indexar", daemon=True)
+                                           args=(aquecer,), name="memoria-indexar", daemon=True)
             self._fundo.start()
 
     def aguardar_indexacao(self, timeout: float | None = None) -> bool:
@@ -233,15 +242,17 @@ class Memoria:
             self.ultima_busca_falhou = False
             if not pergunta or not pergunta.strip():
                 return []
+            falhou = False
             try:
                 vetor = self._vetores([f"search_query: {pergunta.strip()}"])[0]
             except Exception as e:
+                falhou = True
                 self.ultima_busca_falhou = True
                 self.ultimo_erro = f"falha ao vetorizar a pergunta: {e}"
                 return []
             finally:
                 if atualizar:
-                    self._atualizar_em_fundo()
+                    self._atualizar_em_fundo(aquecer=falhou)
             notas = self._carregar()["notas"]  # retrato: não espera a indexação
             achados = []
             for chave, nota in notas.items():

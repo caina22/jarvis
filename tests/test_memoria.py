@@ -270,6 +270,59 @@ class TestMemoria(unittest.TestCase):
         self.assertTrue(mem.aguardar_indexacao(5))
         self.assertEqual(len(self.ler_indice()["notas"]), 2)  # reaqueceu
 
+    def espiar_vetores(self, mem):
+        """Registra (primeiro texto, timeout) de cada _vetores; o embed falso
+        não recebe o timeout, então espiamos o auxiliar interno."""
+        pedidos = []
+        original = mem._vetores
+
+        def espia(textos, timeout=None):
+            pedidos.append((textos[0], timeout))
+            return original(textos, timeout)
+        mem._vetores = espia
+        return pedidos
+
+    def test_busca_falha_reaquece_modelo_mesmo_sem_nota_alterada(self):
+        self.mem.indexar()  # índice completo, nenhuma nota vai mudar
+        falhou = []
+
+        def fria_na_1a_pergunta(textos):
+            if textos[0].startswith("search_query:") and not falhou:
+                falhou.append(1)
+                raise urllib.error.URLError("modelo descarregado")
+            return self.embed_falso(textos)
+        mem = self.nova(fria_na_1a_pergunta)
+        pedidos = self.espiar_vetores(mem)
+        self.assertEqual(mem.buscar("preço"), [])
+        self.assertTrue(mem.ultima_busca_falhou)
+        self.assertTrue(mem.aguardar_indexacao(5))
+        aquecimentos = [t for texto, t in pedidos[1:]
+                        if texto.startswith("search_query:")]
+        self.assertEqual(aquecimentos, [memoria.TIMEOUT_INDEXAR])
+        self.assertFalse([1 for texto, _ in pedidos
+                          if texto.startswith("search_document:")])  # nada mudou
+        self.assertTrue(mem.buscar("preço"))
+        self.assertFalse(mem.ultima_busca_falhou)
+
+    def test_aquecimento_que_falha_nao_levanta(self):
+        self.mem.indexar()
+
+        def sempre_falha(textos):
+            raise urllib.error.URLError("fora")
+        mem = self.nova(sempre_falha)
+        self.assertEqual(mem.buscar("preço"), [])
+        self.assertTrue(mem.aguardar_indexacao(5))
+        self.assertIn("falha", mem.ultimo_erro)
+
+    def test_busca_ok_nao_faz_aquecimento(self):
+        self.mem.indexar()
+        mem = self.nova()
+        pedidos = self.espiar_vetores(mem)
+        self.assertTrue(mem.buscar("preço"))
+        self.assertTrue(mem.aguardar_indexacao(5))
+        self.assertEqual(len(pedidos), 1)  # só a pergunta
+        self.assertEqual(pedidos[0][1], None)  # timeout curto (padrão)
+
     def test_falha_de_indice_nao_marca_busca(self):
         self.nota("Ruim.md", b"\xff\xfe\x00bad")
         self.mem.indexar()

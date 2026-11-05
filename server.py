@@ -135,6 +135,18 @@ def carregar_vozes():
         return []
 
 
+# O que dá pra escolher na engrenagem pro Claude (aliases do Claude Code: sempre a versão mais nova)
+MODELOS_CLAUDE = [
+    {"id": "haiku", "nome": "Haiku", "descricao": "O mais rápido e leve"},
+    {"id": "sonnet", "nome": "Sonnet", "descricao": "Equilíbrio entre rapidez e capricho"},
+    {"id": "opus", "nome": "Opus", "descricao": "O mais capaz, mais lento"},
+]
+ESFORCOS_CLAUDE = [
+    {"id": "low", "nome": "Baixo"}, {"id": "medium", "nome": "Médio"}, {"id": "high", "nome": "Alto"},
+    {"id": "xhigh", "nome": "Muito alto"}, {"id": "max", "nome": "Máximo"},
+]
+
+
 def carregar_preferencias():
     try:
         p = json.loads(PREFS.read_text(encoding="utf-8"))
@@ -144,11 +156,16 @@ def carregar_preferencias():
         CFG["voz"] = p["voz"]
     if p.get("velocidade"):
         CFG["velocidade_voz"] = float(p["velocidade"])
+    if p.get("modelo") in {m["id"] for m in MODELOS_CLAUDE}:
+        CFG["modelo"] = p["modelo"]
+    if p.get("esforco") in {e["id"] for e in ESFORCOS_CLAUDE}:
+        CFG["esforco"] = p["esforco"]
 
 
 def salvar_preferencias():
     ESTADO.mkdir(exist_ok=True)
-    PREFS.write_text(json.dumps({"voz": CFG["voz"], "velocidade": CFG["velocidade_voz"]}), encoding="utf-8")
+    PREFS.write_text(json.dumps({"voz": CFG["voz"], "velocidade": CFG["velocidade_voz"],
+                                 "modelo": CFG["modelo"], "esforco": CFG["esforco"]}), encoding="utf-8")
 
 
 VOZES = carregar_vozes()
@@ -176,6 +193,86 @@ def fim_do_diario(limite, sem_local=False):
         return texto[-limite:].strip()
     except (OSError, TypeError):
         return ""
+
+
+# ------------------------------------------------------------ recursos da máquina
+
+_cpu_ant = [None]
+_recursos_cache = {"t": 0, "dados": {}}
+
+
+def _uso_cpu():
+    """% de CPU desde a última leitura (Windows, sem depender de psutil)."""
+    import ctypes
+    from ctypes import wintypes
+    ocioso, nucleo, usuario = (wintypes.FILETIME() for _ in range(3))
+    if not ctypes.windll.kernel32.GetSystemTimes(ctypes.byref(ocioso), ctypes.byref(nucleo), ctypes.byref(usuario)):
+        return None
+    val = lambda f: (f.dwHighDateTime << 32) | f.dwLowDateTime
+    atual = (val(ocioso), val(nucleo) + val(usuario))  # o tempo de núcleo já inclui o ocioso
+    ant, _cpu_ant[0] = _cpu_ant[0], atual
+    if not ant or atual[1] == ant[1]:
+        return None
+    return round(100 * (1 - (atual[0] - ant[0]) / (atual[1] - ant[1])))
+
+
+def _uso_ram():
+    import ctypes
+
+    class MEM(ctypes.Structure):
+        _fields_ = [("tam", ctypes.c_ulong), ("carga", ctypes.c_ulong), ("total", ctypes.c_ulonglong),
+                    ("livre", ctypes.c_ulonglong), ("a", ctypes.c_ulonglong), ("b", ctypes.c_ulonglong),
+                    ("c", ctypes.c_ulonglong), ("d", ctypes.c_ulonglong), ("e", ctypes.c_ulonglong)]
+    m = MEM(); m.tam = ctypes.sizeof(MEM)
+    ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m))
+    return {"pct": int(m.carga), "usado": round((m.total - m.livre) / 2**30, 1), "total": round(m.total / 2**30, 1)}
+
+
+def _uso_gpu():
+    try:
+        saida = subprocess.run(
+            ["nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=3, creationflags=0x08000000).stdout.strip().splitlines()[0]
+        uso, usada, total = (float(x) for x in saida.split(","))
+        return {"pct": round(uso), "vram_usada": round(usada / 1024, 1), "vram_total": round(total / 1024, 1),
+                "vram_pct": round(100 * usada / total)}
+    except Exception:
+        return None
+
+
+def recursos():
+    agora = time.time()
+    if agora - _recursos_cache["t"] < 1.5:
+        return _recursos_cache["dados"]
+    dados = {"cpu": None, "ram": None, "gpu": None, "disco": None}
+    try:
+        dados["cpu"] = _uso_cpu()
+        dados["ram"] = _uso_ram()
+    except Exception:
+        pass
+    dados["gpu"] = _uso_gpu()
+    try:
+        d = shutil.disk_usage(Path.home().anchor or "C:\\")
+        dados["disco"] = {"pct": round(100 * d.used / d.total), "usado": round(d.used / 2**30), "total": round(d.total / 2**30)}
+    except OSError:
+        pass
+    _recursos_cache.update(t=agora, dados=dados)
+    return dados
+
+
+def ler_tarefas():
+    """Tarefas.md do segundo cérebro -> lista pro painel de baixo da tela."""
+    marcas = {" ": "fazer", "~": "fazendo", "x": "feita", "X": "feita"}
+    itens = []
+    for linha in ler_nota("Tarefas.md", 20000).splitlines():
+        m = re.match(r"\s*[-*]\s*\[([ ~xX])\]\s*(.+)", linha)
+        if m:
+            itens.append({"estado": marcas[m.group(1)], "texto": m.group(2).strip()[:200]})
+    return itens
+
+
+def emitir_tarefas():
+    EVENTOS.emitir({"tipo": "tarefas", "itens": ler_tarefas()})
 
 
 def contexto_cerebro():
@@ -349,6 +446,8 @@ LEMBRETE = ("\n\n[modo voz: pergunta simples (conversa, confirmação, algo que 
             "Trate-o por Senhor. "
             "Se surgiu informação importante ou o trabalho avançou, atualize o segundo cérebro (00 Agora.md e a nota certa) "
             "antes da resposta final, sem comentar isso. "
+            "Mantenha Tarefas.md do segundo cérebro em dia: ao começar algo marque [~], ao terminar marque [x] com a data, "
+            "e acrescente [ ] para o que ainda falta; a tela mostra essa lista. "
             "Se você alterou algo, depois da fala ponha uma linha só com § e embaixo o resumo escrito da alteração "
             "(esse trecho não é falado nem conta no limite).]")
 ESPERA_AVISO = 0.3  # só fala "um instante" se o trabalho com ferramenta passar disso
@@ -586,13 +685,17 @@ class SessaoClaude:
 SESSAO = SessaoClaude()
 
 
-# ---------------------------------------------------------------- IA local (Ollama)
-# Tarefas simples de pasta e arquivo vão pro modelo local (grátis). O que for código,
-# apagar, internet ou qualquer dúvida segue pro Claude.
+# ---------------------------------------------------------------- IA local (Ollama): agente de arquivos
+# O Gemma não conversa: ele só faz tarefas simples de arquivo e pasta, como um agente. A cada passo
+# escolhe UMA ação de uma lista fechada (listar, procurar, contar, criar pasta, mover, copiar,
+# renomear), o Python executa com os caminhos conferidos, devolve o resultado, e ele decide o próximo.
+# Nada de comando livre. Conversa, código, apagar, internet, Google e memória vão pro Claude.
 # Modelo menor cabe na placa de vídeo junto com o VoiceStudio (o 9B dividia os 6 GB e ficava lento)
-LOCAL_MODELO = os.environ.get("JARVIS_MODELO_LOCAL") or ler_env(RAIZ / ".env").get("JARVIS_MODELO_LOCAL", "gemma2:2b")
+LOCAL_MODELO = os.environ.get("JARVIS_MODELO_LOCAL") or ler_env(RAIZ / ".env").get("JARVIS_MODELO_LOCAL", "qwen2.5:3b")
 LOCAL_URL = "http://127.0.0.1:11434/api/generate"
-LOCAL_VERBOS = re.compile(r"\b(organiz\w*|mov\w+|renome\w+|copi\w+|separ\w+|junt\w+|list\w+|cri\w+ (uma |a )?(nova )?pasta|nova pasta|quantos arquivos|arquivos da pasta)\b")
+LOCAL_VERBOS = re.compile(r"\b(organiz\w*|mov\w+|renome\w+|copi\w+|separ\w+|junt\w+|list\w+|"
+                          r"cri\w+ (uma |a )?(nova )?pasta|nova pasta|quantos arquivos|arquivos da pasta|"
+                          r"procur\w+ (o |os |um |uns |a |as )?arquivos?|acha\w* (o |os |um )?arquivos?)\b")
 LOCAL_CLAUDE = re.compile(r"(claude|cloud|clod|claudio)")
 LOCAL_CODIGO = re.compile(r"\b(html|css|javascript|js|typescript|python|codigo|script|site|pagina|servidor|server|funcao|bug|git|deploy|api|jarvis|instal\w+|apag\w+|exclu\w+|delet\w+|envi\w+|email|agenda|whatsapp|pesquis\w+)\b")
 # Contas Google (Gmail, Agenda, Drive, Planilhas): só o Claude tem os conectores
@@ -602,18 +705,8 @@ LOCAL_GOOGLE = re.compile(r"\b(google|gmail|e ?mails?|mail|caixa de entrada|inbo
 # Guardar ou lembrar algo precisa do Claude: só ele escreve e procura no segundo cérebro
 LOCAL_MEMORIA = re.compile(r"\b(lembr\w*|anot\w*|guard\w*|memori\w*|esquec\w*|registr\w*|cerebro|salv\w*|"
                            r"trabalhando|estavamos|paramos|combinamos|falamos|decidimos)\b")
-LOCAL_PROIBIDO = re.compile(
-    r"(\b(Remove-\w+|rm|del|erase|rd|rmdir|ri|Invoke-\w+|iwr|irm|iex|icm|Start-Process|Stop-\w+|Restart-\w+|"
-    r"Set-ExecutionPolicy|reg|schtasks|shutdown|winget|cmd|powershell|pwsh|curl|wget|taskkill|Send-\w+|git|npm|pip|"
-    r"Format-\w+|Clear-\w+|Out-Printer)\b|\.\.|`|\$\(|\$env|~)", re.I)
-LOCAL_PROMPT = (
-    "Você converte pedidos simples de organização de arquivos em UM comando PowerShell (Windows 11). "
-    "Pasta base do usuário: {base}. Use sempre caminhos absolutos dentro dela. "
-    "Permitido: Get-ChildItem, Move-Item, Copy-Item, Rename-Item, New-Item -ItemType Directory. "
-    "Nunca apague nada, nunca use internet, nunca use caminhos fora da pasta base. "
-    "Se o pedido envolver código, apagar, enviar algo, ou se faltar informação, responda comando vazio. "
-    'Responda só JSON: {{"comando": "..."}}.\n\nPedido: {pedido}'
-)
+AGENTE_PASSOS = 12         # no máximo 12 ações por pedido
+AGENTE_MAX_ITENS = 200     # um "mover *.pdf" mexe em no máximo 200 arquivos de uma vez
 
 
 def _ollama(prompt, formato=None, limite=90):
@@ -625,17 +718,355 @@ def _ollama(prompt, formato=None, limite=90):
         return json.loads(resp.read())["response"].strip()
 
 
-def comando_local_seguro(cmd):
-    if not cmd or len(cmd) > 600 or LOCAL_PROIBIDO.search(cmd):
-        return False
+def pastas_conhecidas():
+    """Onde ficam as pastas de costume neste PC (no Windows com OneDrive elas mudam de lugar)."""
+    casa = Path.home()
+    candidatas = {
+        "Área de Trabalho": [casa / "OneDrive" / "Desktop", casa / "Desktop"],
+        "Documentos": [casa / "OneDrive" / "Documentos", casa / "OneDrive" / "Documents", casa / "Documents"],
+        "Downloads": [casa / "Downloads"],
+        "Imagens": [casa / "OneDrive" / "Imagens", casa / "OneDrive" / "Pictures", casa / "Pictures"],
+        "Vídeos": [casa / "Videos"],
+        "Músicas": [casa / "Music"],
+        "Projetos": [casa / "OneDrive" / "Desktop" / "Projetos"],
+    }
+    return {nome: str(next(p for p in lista if p.is_dir())) for nome, lista in candidatas.items()
+            if any(p.is_dir() for p in lista)}
+
+
+class RecusaAgente(Exception):
+    """Ação fora do permitido: o agente para e o Claude assume (ou explica)."""
+
+
+def _caminho(texto, escrever=False):
+    """Confere um caminho: dentro da pasta de trabalho, sem rede, sem pasta de sistema ou oculta pra escrever."""
     base = CFG["pasta"].resolve()
-    for caminho in re.findall(r"[A-Za-z]:\\[^\"'|;,]*", cmd):
+    bruto = str(texto or "").strip().strip('"').strip("'")
+    if not bruto or bruto.startswith("\\\\") or "://" in bruto:
+        raise RecusaAgente(f"caminho inválido: {bruto or '(vazio)'}")
+    p = Path(bruto)
+    if not p.is_absolute():
+        p = base / p
+    p = p.resolve()  # resolve também atalhos simbólicos e ".."
+    if not p.is_relative_to(base):
+        raise RecusaAgente(f"fora da pasta de trabalho: {p}")
+    if escrever:
+        partes = [x.lower() for x in p.relative_to(base).parts]
+        if not partes or partes[0] in ("appdata", "ntuser.dat") or any(x.startswith(".") for x in partes):
+            raise RecusaAgente(f"pasta protegida: {p}")
+    return p
+
+
+def _itens(texto):
+    """'C:\\...\\Downloads\\*.pdf' vira a lista de arquivos; caminho comum vira lista de um."""
+    bruto = str(texto or "")
+    if any(c in bruto for c in "*?"):
+        pasta = _caminho(str(Path(bruto).parent))
+        achados = sorted(pasta.glob(Path(bruto).name))[:AGENTE_MAX_ITENS]
+        if not achados:
+            raise RecusaAgente(f"nada encontrado em {bruto}")
+        return achados
+    p = _caminho(bruto)
+    if not p.exists():
+        raise RecusaAgente(f"não existe: {p}")
+    return [p]
+
+
+def executar_acao(acao, feitos):
+    """Executa uma ação do agente. Devolve o texto do resultado (o que o Gemma vê no próximo passo)."""
+    tipo = str(acao.get("acao", "")).lower()
+    if tipo == "listar":
+        pasta = _caminho(acao.get("pasta"))
+        if not pasta.is_dir():
+            raise RecusaAgente(f"não é uma pasta: {pasta}")
+        itens = sorted(pasta.iterdir(), key=lambda x: (x.is_file(), x.name.lower()))
+        linhas = [("[pasta] " if i.is_dir() else "") + i.name for i in itens[:80]]
+        return f"{len(itens)} itens em {pasta}:\n" + "\n".join(linhas) + ("\n..." if len(itens) > 80 else "")
+    if tipo == "contar":
+        pasta = _caminho(acao.get("pasta"))
+        arquivos = [i for i in pasta.rglob("*") if i.is_file()]
+        return f"{pasta}: {len(arquivos)} arquivos (contando subpastas), {len(list(pasta.iterdir()))} itens no primeiro nível"
+    if tipo == "procurar":
+        pasta = _caminho(acao.get("pasta"))
+        padrao = str(acao.get("padrao") or "*")
+        achados = [str(i) for _, i in zip(range(50), pasta.rglob(padrao))]
+        return f"{len(achados)} encontrados" + (" (mostrando 50)" if len(achados) == 50 else "") + ":\n" + "\n".join(achados)
+    if tipo == "criar_pasta":
+        pasta = _caminho(acao.get("pasta"), escrever=True)
+        if pasta.exists():
+            return f"já existe: {pasta}"
+        if not pasta.parent.is_dir():  # caminho errado não vira uma árvore nova de pastas
+            raise RecusaAgente(f"a pasta onde criar não existe: {pasta.parent}")
+        pasta.mkdir()
+        feitos.append(f"Pasta criada: {pasta}")
+        return f"criada: {pasta}"
+    if tipo in ("mover", "copiar"):
+        destino = _caminho(acao.get("para"), escrever=True)
+        origens = _itens(acao.get("de"))
+        for o in origens:
+            _caminho(str(o), escrever=True)
+        # Destino é pasta quando já é pasta, termina com barra, são vários itens ou não tem extensão
+        # ("...\PDFs" que ainda não existe vira pasta nova, nunca o novo nome do arquivo)
+        vira_pasta = (len(origens) > 1 or destino.is_dir() or str(acao.get("para", "")).endswith(("\\", "/"))
+                      or (not destino.exists() and not destino.suffix))
+        if destino.exists() and not destino.is_dir() and len(origens) == 1 and origens[0].suffix and not destino.suffix:
+            raise RecusaAgente(f"o destino é um arquivo, não uma pasta: {destino}")
+        pasta_destino = destino if vira_pasta else destino.parent
+        if not pasta_destino.is_dir() and not pasta_destino.parent.is_dir():
+            # cria no máximo a última pasta (ex.: ...\Teste Agente\PDFs); caminho errado é recusado
+            raise RecusaAgente(f"a pasta de destino não existe: {pasta_destino.parent}")
+        pasta_destino.mkdir(exist_ok=True)
+        alvos = [(o, destino / o.name) for o in origens] if vira_pasta else [(origens[0], destino)]
+        resultado, pulados = [], []
+        for o, alvo in alvos:
+            if o.is_dir() and alvo.resolve().is_relative_to(o):
+                raise RecusaAgente(f"não dá pra mover uma pasta pra dentro dela mesma: {o}")
+            if alvo.exists():  # nunca sobrescreve
+                pulados.append(o.name)
+                continue
+            if tipo == "mover":
+                shutil.move(str(o), str(alvo))
+            elif o.is_dir():
+                shutil.copytree(o, alvo)
+            else:
+                shutil.copy2(o, alvo)
+            resultado.append(f"{o} → {alvo}")
+        verbo = "Movido" if tipo == "mover" else "Copiado"
+        feitos.extend(f"{verbo}: {r}" for r in resultado)
+        texto = f"{len(resultado)} {'movidos' if tipo == 'mover' else 'copiados'}"
+        return texto + (f"; pulados porque já existem no destino: {', '.join(pulados[:10])}" if pulados else "")
+    if tipo == "renomear":
+        origem = _itens(acao.get("de"))[0]
+        _caminho(str(origem), escrever=True)
+        novo = str(acao.get("novo_nome") or "").strip()
+        if not novo or any(c in novo for c in '\\/:*?"<>|'):
+            raise RecusaAgente(f"nome inválido: {novo or '(vazio)'}")
+        alvo = origem.with_name(novo)
+        if alvo.exists():
+            raise RecusaAgente(f"já existe: {alvo}")
+        origem.rename(alvo)
+        feitos.append(f"Renomeado: {origem} → {alvo.name}")
+        return f"renomeado para {alvo.name}"
+    raise RecusaAgente(f"ação desconhecida: {tipo or '(vazia)'}")
+
+
+AGENTE_RODADAS = 4  # planeja → executa → vê como ficou → completa ou fecha, no máximo 4 vezes
+AGENTE_TEMPO_MAX = 10  # segundos: passou disso sem terminar, não começa outra rodada e o Claude assume
+
+AGENTE_PROMPT = """Você é o agente de arquivos do JARVIS no Windows 11.
+Responda só um JSON. Duas formas possíveis:
+1) Ações a executar agora, em ordem:
+{{"acoes": [AÇÃO, AÇÃO, ...]}}
+2) Terminou (ou só precisava ler):
+{{"fim": "uma frase curta, falada, dizendo o resultado; chame o dono de Cainã; sem caminho de arquivo"}}
+Se o pedido não for de arquivo/pasta, ou precisar de algo que estas ações não fazem: {{"desistir": "motivo"}}
+
+AÇÕES possíveis (caminhos completos):
+{{"acao": "listar", "pasta": "C:\\\\...\\\\Pasta"}}
+{{"acao": "contar", "pasta": "C:\\\\...\\\\Pasta"}}
+{{"acao": "procurar", "pasta": "C:\\\\...\\\\Pasta", "padrao": "*.pdf"}}
+{{"acao": "criar_pasta", "pasta": "C:\\\\...\\\\Pasta\\\\Nova"}}
+{{"acao": "mover", "de": "C:\\\\...\\\\Pasta\\\\*.pdf", "para": "C:\\\\...\\\\Pasta\\\\PDFs"}}
+{{"acao": "copiar", "de": "C:\\\\...\\\\Pasta\\\\arquivo.txt", "para": "C:\\\\...\\\\Outra"}}
+{{"acao": "renomear", "de": "C:\\\\...\\\\Pasta\\\\velho.txt", "novo_nome": "novo.txt"}}
+
+Regras:
+- "de" é sempre ARQUIVO ou CURINGA (ex.: ...\\\\*.jpg), nunca a pasta inteira de onde os arquivos saem.
+- "mover" e "copiar" criam a pasta de destino sozinhos; não precisa "criar_pasta" antes.
+- Use um curinga por tipo: *.pdf; fotos são *.jpg, *.jpeg, *.png; vídeos *.mp4; modelos 3D *.stl, *.3mf, *.obj.
+- Não existe apagar. Não repita ação que já deu certo.
+
+Pastas deste PC: {pastas}
+Pastas citadas no pedido (caminhos reais): {citadas}
+{conteudo}
+Pedido do Cainã: {pedido}
+
+O que já foi executado:
+{historico}
+JSON:"""
+
+
+def pastas_citadas(texto):
+    """Acha as pastas que o pedido cita pelo nome (até 2 níveis dentro das pastas de costume).
+    O modelo pequeno erra caminho; com o caminho certo na mão ele não precisa adivinhar."""
+    pedido = " " + " ".join(normalizar(texto)) + " "
+    achadas = []
+    for raiz in pastas_conhecidas().values():
+        raiz = Path(raiz)
+        nivel1 = [p for p in raiz.iterdir() if p.is_dir() and not p.name.startswith(".")] if raiz.is_dir() else []
+        candidatas = [raiz] + nivel1 + [q for p in nivel1[:60] for q in p.iterdir()
+                                         if q.is_dir() and not q.name.startswith(".")][:300]
+        for p in candidatas:
+            nome = " ".join(normalizar(p.name))
+            if len(nome) >= 4 and f" {nome} " in pedido and str(p) not in achadas:
+                achadas.append(str(p))
+    return achadas[:8]
+
+
+def _ler_plano(plano):
+    """O modelo pequeno varia o formato. Aceita {"acoes": [...]}, uma ação solta {"acao": ...},
+    ou a ação escrita como lista ["contar", "pasta", "C:\\..."]. Devolve a lista de ações (dicts)."""
+    if not isinstance(plano, dict):
+        return []
+    if plano.get("acao"):
+        return [plano]
+    bruto = plano.get("acoes") or []
+    if isinstance(bruto, dict):
+        bruto = [bruto]
+    if bruto and all(isinstance(x, str) for x in bruto):
+        bruto = [bruto]  # uma ação em forma de lista
+    acoes = []
+    for item in bruto:
+        if isinstance(item, dict) and item.get("acao"):
+            acoes.append(item)
+        elif isinstance(item, list) and item and isinstance(item[0], str):
+            acao = {"acao": item[0]}
+            for chave, valor in zip(item[1::2], item[2::2]):
+                acao[str(chave)] = valor
+            acoes.append(acao)
+    return acoes[:AGENTE_PASSOS]
+
+
+# O que cada verbo do pedido libera. Ler é sempre livre; mexer, só o que foi pedido.
+VERBOS_ACOES = [
+    (re.compile(r"\b(organiz\w*|separ\w*|junt\w*|mov\w+|mova\w*|coloc\w+|guard\w+ (na|no|em))\b"), {"mover", "criar_pasta"}),
+    (re.compile(r"\bcopi\w+|\bcopy\b|\bduplic\w+|\bbackup\b"), {"copiar", "criar_pasta"}),
+    (re.compile(r"\brenome\w+|\bmud\w+ o nome\b|\btroc\w+ o nome\b"), {"renomear"}),
+    (re.compile(r"\bcri\w+\b.*\bpasta\b|\bnova pasta\b"), {"criar_pasta"}),
+]
+
+
+def acoes_permitidas(texto):
+    frase = " ".join(normalizar(texto))
+    permitidas = {"listar", "contar", "procurar"}
+    for padrao, acoes in VERBOS_ACOES:
+        if padrao.search(frase):
+            permitidas |= acoes
+    return permitidas
+
+
+def _executar_no_painel(acao, feitos, permitidas=None):
+    """Executa uma ação e mostra no painel. Devolve (resultado, deu_erro)."""
+    tipo = str(acao.get("acao", "")).lower()
+    id_passo = f"local-{uuid.uuid4().hex[:8]}"
+    detalhe = " · ".join(f"{k}: {v}" for k, v in acao.items() if k != "acao")
+    EVENTOS.emitir({"tipo": "passo", "passo": "ferramenta", "id": id_passo,
+                    "rotulo": f"Agente local · {tipo or '?'}", "detalhe": detalhe})
+    try:
+        if permitidas is not None and tipo not in permitidas:
+            raise RecusaAgente(f"o pedido não pediu '{tipo}' (só {', '.join(sorted(permitidas))})")
+        resultado, erro = executar_acao(acao, feitos), False
+    except RecusaAgente as recusa:
+        resultado, erro = f"RECUSADO: {recusa}", True
+    except OSError as falha:
+        resultado, erro = f"ERRO: {falha}", True
+    EVENTOS.emitir({"tipo": "passo", "passo": "resultado", "id": id_passo, "erro": erro, "texto": resultado[:300]})
+    return resultado, erro
+
+
+def agente_arquivos(texto, registro):
+    """Gemma como agente: planeja as ações, o Python executa, ele vê o resultado e completa ou fecha.
+    None = não resolveu, o Claude assume."""
+    t0 = time.time()
+    feitos, historico, passos = [], [], []
+    resposta, leu = "", False
+    try:
+        citadas = pastas_citadas(texto)
+    except OSError:
+        citadas = []
+    # Já mostra o conteúdo das pastas citadas (as mais específicas): o modelo pequeno não precisa listar
+    especificas = [c for c in citadas if not any(o != c and Path(o).is_relative_to(c) for o in citadas)][:2]
+    conteudo = ""
+    for c in especificas:
         try:
-            if not Path(caminho.strip()).resolve().is_relative_to(base):
-                return False
-        except Exception:
-            return False
-    return True
+            conteudo += "Conteúdo atual de " + executar_acao({"acao": "listar", "pasta": c}, []) + "\n"
+        except (RecusaAgente, OSError):
+            pass
+    # leu só vale com uma leitura executada de verdade (contar/listar/procurar): resposta "de cabeça" não serve
+    ja_feito, erros, falhas, contagem = set(), 0, [], None
+    viu_depois = terminou = False  # só vale "feito" se ele fechou com fim DEPOIS de ver como as pastas ficaram
+    permitidas = acoes_permitidas(texto)
+    for rodada in range(1, AGENTE_RODADAS + 1):
+        if time.time() - t0 > AGENTE_TEMPO_MAX:
+            break  # demorando demais: o Claude termina (com o que já foi feito)
+        prompt = AGENTE_PROMPT.format(pastas=json.dumps(pastas_conhecidas(), ensure_ascii=False),
+                                      citadas=json.dumps(especificas or citadas, ensure_ascii=False) or "(nenhuma)",
+                                      conteudo=conteudo, pedido=texto,
+                                      historico="\n".join(historico) or "(nada ainda)")
+        try:
+            plano = json.loads(_ollama(prompt, "json", limite=60))
+        except Exception as erro:
+            registro["local_erro"] = repr(erro)
+            break
+        if not isinstance(plano, dict):
+            break
+        if plano.get("desistir"):
+            registro["local_desistiu"] = str(plano["desistir"])[:200]
+            break
+        acoes = _ler_plano(plano)
+        if plano.get("fim") and not acoes:
+            resposta = str(plano["fim"]).strip()
+            terminou = viu_depois or not feitos
+            break
+        novas = [a for a in acoes if json.dumps(a, sort_keys=True) not in ja_feito]
+        if not novas:
+            # Viu como as pastas ficaram e só repetiu o que já tinha feito: o modelo pequeno faz isso
+            # no lugar de dizer "fim". Conta como terminado; sem ter conferido, é andar em círculo.
+            # Só em tarefa pequena (até 2 mudanças); organizar uma pasta inteira precisa de "fim" explícito
+            terminou = viu_depois and 0 < len(feitos) <= 2 and not falhas
+            break
+        erros, mudou = 0, False
+        for acao in novas:
+            passos.append(acao)
+            ja_feito.add(json.dumps(acao, sort_keys=True))
+            antes_feitos = len(feitos)
+            resultado, erro = _executar_no_painel(acao, feitos, permitidas)
+            mudou = mudou or len(feitos) > antes_feitos
+            leu = leu or (not erro and str(acao.get("acao")) in ("listar", "contar", "procurar"))
+            if not erro and str(acao.get("acao")) == "contar":
+                contagem = resultado
+            historico.append(f"- {json.dumps(acao, ensure_ascii=False)}\n  resultado: {resultado[:800]}")
+            erros += erro
+            if erro:
+                falhas.append(f"{json.dumps(acao, ensure_ascii=False)} → {resultado[:200]}")
+            if erros >= 2:
+                break  # errou duas vezes nesta rodada: para e deixa a próxima rodada (ou o Claude) corrigir
+        if mudou:  # mostra como as pastas ficaram, pra ele ver o que ainda falta
+            conteudo = ""
+            for c in especificas:
+                try:
+                    conteudo += "Conteúdo ATUAL (depois das ações) de " + executar_acao({"acao": "listar", "pasta": c}, []) + "\n"
+                except (RecusaAgente, OSError):
+                    pass
+            conteudo += "Confira se ainda falta algo do pedido. Se falta, mande as ações que faltam; se não, use fim.\n"
+            viu_depois = True
+        # rodada só de leitura não muda viu_depois: a última conferência continua valendo
+    # fica em "agente" (e não em "local") porque, se ele não resolver, quem responde é o Claude
+    registro["agente"] = {"passos": passos, "feitos": len(feitos), "falhas": len(falhas), "citadas": citadas,
+                          "s": round(time.time() - t0, 2)}
+    if falhas or (feitos and not terminou):
+        # Deu erro, ou mexeu e não fechou depois de conferir: o Claude recebe o que já foi feito, confere e termina
+        registro["agente_repasse"] = (
+            "[o agente local de arquivos tentou este pedido antes de você. "
+            + ("Já fez: " + "; ".join(feitos[:30]) + ". " if feitos else "Não mudou nada. ")
+            + ("Falhou em: " + "; ".join(falhas[:10]) + ". " if falhas else "Parou sem confirmar que terminou. ")
+            + "Confira o estado das pastas, desfaça o que estiver no lugar errado e termine o pedido.]\n\n")
+        return None
+    if not feitos and not resposta and contagem:
+        # contou certo mas não fechou: responde com o número que o Python contou, não com o do modelo
+        total = re.search(r": (\d+) arquivos", contagem)
+        if total:
+            resposta = f"São {total.group(1)} arquivos, Cainã, contando as subpastas."
+    if not feitos and resposta and leu:
+        registro["local"] = {"agente": True}
+        return {"result": resposta, "is_error": False, "local": True}  # pergunta respondida só lendo
+    if not feitos:
+        return None  # não mudou nada: o Claude assume do zero
+    escrito = "\n".join("- " + f for f in feitos[:60]) + (f"\n- (+{len(feitos) - 60} itens)" if len(feitos) > 60 else "")
+    n = f"{len(feitos)} {'alteração' if len(feitos) == 1 else 'alterações'}"
+    fala = resposta or f"Feito, Cainã. {n}; o detalhe está no painel."
+    registro["local"] = {"agente": True}
+    return {"result": f"{fala}\n§\n{escrito}", "is_error": False, "local": True}
 
 
 # ---------------------------------------------------------------- WhatsApp: resumo pra você mesmo
@@ -775,45 +1206,8 @@ def tentar_local(texto, registro):
     if len(frase.split()) > 30:  # pedido longo ou complexo: Claude
         return None
     if not LOCAL_VERBOS.search(frase):
-        try:  # conversa comum: o Gemma responde sozinho, sabendo no que vocês estão trabalhando
-            memoria = ""
-            if CFG["cerebro"]:
-                memoria = ("\n\nNo que vocês estão trabalhando (00 Agora.md):\n" + ler_nota("00 Agora.md", 2500) +
-                           "\n\nÚltimas conversas (só contexto; nunca repita uma resposta antiga):\n" + fim_do_diario(800, sem_local=True) + "\n")
-            resposta = _ollama(
-                "Você é o JARVIS, uma inteligência artificial sarcástica e filosófica: ironia seca e elegante em quase toda "
-                "resposta e, de vez em quando, uma reflexão curta sobre tempo, propósito, ordem e caos ou máquinas e humanos. "
-                "Leal e eficiente, nunca cruel; assunto sério (dinheiro, saúde, erro grave) é tratado sério. Chame o dono de Senhor. "
-                "Responda em no máximo 2 frases curtas, faladas, sem markdown, sem emoji. Se não souber, diga que não sabe; nunca invente."
-                f"{memoria}\nResponda ao que o Senhor acabou de dizer, sem repetir respostas anteriores.\nFala do Senhor: {texto}", limite=60)
-            registro["local"] = {"conversa": True}
-            return {"result": resposta, "is_error": False, "local": True} if resposta else None
-        except Exception as erro:
-            registro["local_erro"] = repr(erro)
-            return None
-    try:
-        t0 = time.time()
-        cmd = (json.loads(_ollama(LOCAL_PROMPT.format(base=CFG["pasta"], pedido=texto), "json")).get("comando") or "").strip()
-        if not comando_local_seguro(cmd):
-            return None
-        saida = subprocess.run(
-            ["powershell", "-NoProfile", "-NonInteractive", "-Command", cmd],
-            capture_output=True, text=True, timeout=30, cwd=str(CFG["pasta"]),
-        )
-        registro["local"] = {"comando": cmd, "codigo": saida.returncode, "s": round(time.time() - t0, 2)}
-        if saida.returncode != 0:
-            return None
-        dados = (saida.stdout or "").strip()[:1500]
-        resposta = "Feito, Senhor."
-        if dados:
-            resposta = _ollama(
-                "Você é o JARVIS, uma inteligência artificial sarcástica e filosófica, de ironia seca e elegante. "
-                "Chame o dono de Senhor. Resuma em UMA frase curta, com um toque irônico, "
-                f"falada, sem markdown, sem caminhos:\nPedido: {texto}\nResultado:\n{dados}", limite=30) or resposta
-        return {"result": resposta, "is_error": False, "local": True}
-    except Exception as erro:
-        registro["local_erro"] = repr(erro)
-        return None
+        return None  # conversa e o resto: Claude (o Gemma só mexe em arquivo)
+    return agente_arquivos(texto, registro)
 
 
 # ---------------------------------------------------------------- transcrição
@@ -1212,6 +1606,7 @@ def processar(audio=None, mime="audio/webm", texto=None):
                 antes = ("[conversas que o modelo local respondeu enquanto isso:\n" +
                          "\n".join(Turno.conversa_local[-8:]) + "]\n\n")
                 Turno.conversa_local = []
+            antes += registro.pop("agente_repasse", "")  # o agente local errou no meio: o Claude termina
             r = SESSAO.perguntar(antes + texto + dados, ao_avisar=avisar, aviso_apos=2.5 if dados else None)
             registro["claude_s"] = round(time.time() - t_claude, 2)
             registro["cedo"] = bool(r.get("cedo"))
@@ -1242,6 +1637,7 @@ def processar(audio=None, mime="audio/webm", texto=None):
             "completo": falado.strip()[:6000], "escrito": escrito.strip()[:6000],  # por escrito no painel
             "segundos": registro["total_s"], "confirmar": Turno.aguardando_confirmacao,
         })
+        emitir_tarefas()
         EVENTOS.emitir({"tipo": "estado", "estado": "parado"})
     except Exception as erro:
         registro["erro"] = repr(erro)
@@ -1256,7 +1652,22 @@ def processar(audio=None, mime="audio/webm", texto=None):
 
 
 def config_atual():
-    return {"voz": CFG["voz"], "velocidade": CFG["velocidade_voz"], "vozes": VOZES}
+    return {"voz": CFG["voz"], "velocidade": CFG["velocidade_voz"], "vozes": VOZES,
+            "modelo": CFG["modelo"], "esforco": CFG["esforco"],
+            "modelos": MODELOS_CLAUDE, "esforcos": ESFORCOS_CLAUDE}
+
+
+def trocar_cerebro():
+    """Modelo ou esforço mudou: espera o pedido atual acabar, fecha a sessão e abre outra com a escolha nova.
+    A conversa recomeça, mas o segundo cérebro é relido, então ele não perde o fio do trabalho."""
+    nome = next((m["nome"] for m in MODELOS_CLAUDE if m["id"] == CFG["modelo"]), CFG["modelo"])
+    esforco = next((e["nome"] for e in ESFORCOS_CLAUDE if e["id"] == CFG["esforco"]), CFG["esforco"])
+    EVENTOS.emitir({"tipo": "aviso", "texto": f"Trocando para {nome}, esforço {esforco.lower()}..."})
+    with Turno.ocupado:
+        SESSAO.parar()
+        Turno.aguardando_confirmacao = False
+    aquecer()
+    EVENTOS.emitir({"tipo": "aviso", "texto": f"Pronto: {nome}, esforço {esforco.lower()}."})
 
 
 def gravar_avisos_prontos():
@@ -1418,6 +1829,10 @@ class Servidor(BaseHTTPRequestHandler):
             return self.eventos()
         if caminho == "/api/config":
             return self.responder(200, json.dumps(config_atual(), ensure_ascii=False).encode())
+        if caminho == "/api/recursos":
+            return self.responder(200, json.dumps(recursos()).encode())
+        if caminho == "/api/tarefas":
+            return self.responder(200, json.dumps({"itens": ler_tarefas()}, ensure_ascii=False).encode())
         if caminho.startswith("/api/amostra/"):
             return self.amostra(caminho.rsplit("/", 1)[-1])
         if caminho.startswith("/api/voz/"):
@@ -1471,9 +1886,18 @@ class Servidor(BaseHTTPRequestHandler):
                 CFG["voz"] = pedido["voz"]
             if pedido.get("velocidade") is not None:
                 CFG["velocidade_voz"] = round(min(1.2, max(0.7, float(pedido["velocidade"]))), 2)
+            cerebro_antes = (CFG["modelo"], CFG["esforco"])
+            if pedido.get("modelo") in {m["id"] for m in MODELOS_CLAUDE}:
+                CFG["modelo"] = pedido["modelo"]
+            if pedido.get("esforco") in {e["id"] for e in ESFORCOS_CLAUDE}:
+                CFG["esforco"] = pedido["esforco"]
             salvar_preferencias()
-            log({"evento": "config", "voz": CFG["voz"], "velocidade": CFG["velocidade_voz"]})
-            threading.Thread(target=gravar_avisos_prontos, daemon=True).start()
+            log({"evento": "config", "voz": CFG["voz"], "velocidade": CFG["velocidade_voz"],
+                 "modelo": CFG["modelo"], "esforco": CFG["esforco"]})
+            if (CFG["modelo"], CFG["esforco"]) != cerebro_antes:
+                threading.Thread(target=trocar_cerebro, daemon=True).start()
+            elif "voz" in pedido or "velocidade" in pedido:
+                threading.Thread(target=gravar_avisos_prontos, daemon=True).start()
             return self.responder(200, json.dumps(config_atual(), ensure_ascii=False).encode())
         if self.path == "/api/reiniciar":
             SESSAO.parar()

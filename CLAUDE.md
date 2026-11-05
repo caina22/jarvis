@@ -13,8 +13,10 @@ microfone sempre aberto (web/index.html)
   → detecta voz, grava, manda WAV depois de 1,2 s de silêncio
   → server.py transcreve (ElevenLabs Scribe)
   → decide quem responde:
-       Gemma 2B local (Ollama)  → conversa simples e tarefas de pasta
-       Claude Code (Sonnet)     → tarefas, código, Google, memória, apagar, internet
+       Qwen 2.5 3B local (Ollama) → só agente de arquivos (listar, procurar, contar, criar pasta,
+                                  mover, copiar, renomear) e o resumo do WhatsApp
+       Claude Code (Sonnet)     → conversa e todo o resto: código, Google, memória, apagar, internet;
+                                  também termina o que o agente local deixou pela metade
   → separa a resposta: fala curta | § | resumo escrito da alteração
   → anota no Diário do segundo cérebro
   → gera a voz (VoiceStudio, perfil "ultron") e manda pra tela
@@ -64,8 +66,9 @@ Fora do projeto:
 | `JARVIS_TRANSCRICAO` | `elevenlabs` | Sem whisper local instalado. |
 | `JARVIS_VOZ_MOTOR` | `voicestudio` | `elevenlabs` / `piper` / `voicestudio`. |
 | `JARVIS_VOICESTUDIO_VOZ` | `7b759970` | Perfil "ultron" do VoiceStudio. |
-| `JARVIS_MODELO` | `sonnet` | Modelo do Claude. |
-| `JARVIS_MODELO_LOCAL` | `gemma2:2b` | Ollama. O 9B não cabe junto com o VoiceStudio nos 6 GB da RTX 3050. |
+| `JARVIS_MODELO` | `sonnet` | Modelo do Claude. Também escolhido na tela (botão "Sonnet · baixo" no canto ou engrenagem): haiku, sonnet, opus. A escolha da tela fica em `.estado/preferencias.json` e vale mais que o `.env`. |
+| `JARVIS_ESFORCO` | `low` | Esforço do Claude: low, medium, high, xhigh, max. Também escolhido na tela. Trocar modelo ou esforço reinicia a sessão (`trocar_cerebro`). |
+| `JARVIS_MODELO_LOCAL` | `qwen2.5:3b` | Ollama, agente de arquivos e resumo do WhatsApp. Cabe (2 GB) junto com o VoiceStudio nos 6 GB da RTX 3050. |
 | `JARVIS_CONTEXTO` | `leve` | Claude abre em pasta vazia e anexa a pasta de trabalho. |
 | `JARVIS_TRAVA` | `0` | Trava de confirmação desligada. |
 | `JARVIS_TOKEN` | (secreta) | Senha pra entrar de fora do PC (celular pelo Tailscale Serve). Vazio = só o próprio PC entra. Nunca mostrar nem commitar. |
@@ -80,14 +83,29 @@ Fora do projeto:
 
 - **Claude Code** logado (comando `claude`). Os conectores do claude.ai vêm junto: Gmail, Google Agenda, Google Drive, Google Planilhas, Claude Docs, Canva, Figma, Microsoft 365.
 - **VoiceStudio** (`%LOCALAPPDATA%\Programs\VoiceStudio\VoiceStudio.exe`, API em `http://127.0.0.1:3900`, rota `POST /v1/audio/speech`). O servidor abre o app sozinho se estiver fechado. Cerca de 4 a 5 s por frase na GPU.
-- **Ollama** (`http://127.0.0.1:11434`) com `gemma2:2b`.
+- **Ollama** (`http://127.0.0.1:11434`) com `qwen2.5:3b` (também instalados, sem uso: `gemma2:2b`, `gemma2:9b`).
 - **ElevenLabs** (plano grátis): só a transcrição. Plano grátis não usa vozes da Voice Library pela API e aceita 2 pedidos de voz ao mesmo tempo.
 
 ## O que está funcionando (testado em 2026-11-03)
 
 - Escuta contínua sem tecla, mudo (tecla M e botão), Espaço interrompe.
 - Transcrição pelo Scribe (1 a 6 s).
-- Roteador: conversa no Gemma 2B; tarefa, Google, memória e código no Claude. Respostas em 4 a 10 s com voz.
+- Roteador: conversa e tarefas no Claude; arquivo/pasta primeiro no agente local (Qwen 2.5 3B). Respostas em 4 a 15 s com voz.
+
+## Agente local de arquivos (server.py, `agente_arquivos`)
+
+- Entra só quando o pedido tem verbo de arquivo (`LOCAL_VERBOS`) e nada de código, Google, memória ou apagar.
+- O servidor acha as pastas citadas no pedido (`pastas_citadas`) e já entrega o conteúdo delas pro modelo.
+- O Gemma devolve um plano JSON (`{"acoes": [...]}` ou `{"fim": ...}`); `_ler_plano` aceita as variações de formato dele.
+- Cada ação roda em Python (`executar_acao`), nunca em shell: listar, contar, procurar, criar_pasta, mover, copiar, renomear. Não existe apagar.
+- Segurança (`_caminho`): só dentro de `JARVIS_PASTA`; nada de rede, `AppData` ou pasta oculta pra escrever; nunca sobrescreve; não move pasta pra dentro dela mesma; cria no máximo a última pasta do caminho (caminho errado é recusado em vez de virar árvore nova).
+- Até 3 rodadas (planeja, executa, vê o resultado). Cada ação aparece no painel como "Agente local · ação".
+- Se qualquer ação falhar, a fala não vem do Gemma: o Claude recebe o que foi feito e o que falhou (`agente_repasse`) e termina.
+- Resposta de leitura só vale se uma leitura foi executada de verdade (resposta "de cabeça" vai pro Claude).
+- Só faz o que o pedido pediu (`acoes_permitidas`: "copie" não pode renomear nem mover).
+- Só vale "feito" se fechar com `fim` depois de ver como as pastas ficaram (tarefa de até 2 mudanças aceita repetir a última ação como fim). Contagem falada vem do Python.
+- Passou de 10 s (`AGENTE_TEMPO_MAX`) sem terminar: o Claude assume.
+- Comparação de 2026-11-04 (5 tarefas, 2 vezes cada, resultado conferido): qwen2.5:3b resolveu 6/10 sozinho (5,3 s em média), gemma2:2b 4/10 (1,7 s). Nenhum dos dois deu resposta errada; o resto o Claude terminou. Script de teste: `comparar_modelos.py` (no scratchpad da sessão, não versionado).
 - Voz "ultron" do VoiceStudio; personalidade sarcástica e filosófica.
 - Painel de atividade (tecla P): o que entendeu, pensamento, cada ferramenta com comando e resultado, resposta escrita, caixa "Alteração".
 - Segundo cérebro: guardou um preço, reiniciou a conversa e lembrou. Diário automático.
@@ -96,9 +114,10 @@ Fora do projeto:
 
 ## Problemas conhecidos e pendências (por prioridade)
 
-1. 🔴 **Gemma executa PowerShell gerado por ele mesmo** (`tentar_local` → `subprocess.run(["powershell", ...])`), protegido só por uma lista de palavras proibidas (`LOCAL_PROIBIDO`), fácil de contornar. Correção proposta: o Gemma devolve uma ação estruturada (`{"op": "mover", "de": ..., "para": ...}`), o Python executa com `shutil`/`pathlib`, caminhos validados com `resolve()` + `is_relative_to(CFG["pasta"])`, e o resto vai pro Claude.
+1. ✅ (resolvido em 2026-11-04) O Gemma não executa mais PowerShell livre: virou o agente de ações fixas acima.
 2. 🟠 **Enviar e-mail e criar evento não foram testados**, e sem a trava acontecem sem confirmação. Ideia: religar confirmação só pra envio de e-mail e convite.
-3. 🟠 **Gemma 2B é fraco na personalidade** (às vezes não diz "Senhor", sarcasmo fraco).
+3. 🟡 **Agente local resolve ~60% sozinho** (Qwen 2.5 3B). Em tarefa grande (organizar pasta inteira) gasta ~15 s antes de passar pro Claude.
+3b. 🟡 `persona.md` ainda manda chamar de "Senhor", mas o Cainã pediu pra ser chamado pelo nome (anotado no segundo cérebro em `Contexto do Modelo Local.md`).
 4. 🟡 Toda vez que o Claude do JARVIS liga, tenta carregar plugins quebrados da conta (GitHub, Terraform, Firebase, Playwright, Serena...). Deixa o início mais lento.
 5. 🟡 Sem interrupção por voz em caixa de som (só o Espaço interrompe).
 6. ⚪ Transcrição local (whisper) não feita: o JARVIS ainda depende da chave da ElevenLabs pra ouvir.

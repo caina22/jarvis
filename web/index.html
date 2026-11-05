@@ -9,11 +9,11 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
-    --fundo: #000;
-    --texto: #fff;
-    --suave: rgba(255, 255, 255, .58);
-    --fraco: rgba(255, 255, 255, .30);
-    --linha: rgba(255, 255, 255, .20);
+    --fundo: #020817;
+    --texto: #cfefff;
+    --suave: rgba(0, 200, 255, .58);
+    --fraco: rgba(0, 200, 255, .30);
+    --linha: rgba(0, 200, 255, .20);
   }
   html, body {
     margin: 0; height: 100%; background: var(--fundo); color: var(--texto);
@@ -23,7 +23,7 @@
   canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; cursor: default; }
 
   .topo {
-    position: fixed; top: 28px; left: 32px; right: 32px; display: flex; justify-content: space-between;
+    position: fixed; top: 28px; left: 220px; right: 32px; display: flex; justify-content: space-between;
     align-items: center; font-size: 12px; letter-spacing: .32em; text-transform: uppercase; color: var(--suave);
     pointer-events: none;
   }
@@ -31,7 +31,7 @@
   .estado { display: flex; align-items: center; gap: 10px; }
   .ponto { width: 7px; height: 7px; border-radius: 50%; background: var(--texto); opacity: .35; transition: opacity .3s, box-shadow .3s; }
   body[data-estado="ouvindo"] .ponto,
-  body[data-estado="falando"] .ponto { opacity: 1; box-shadow: 0 0 14px #fff; }
+  body[data-estado="falando"] .ponto { opacity: 1; box-shadow: 0 0 14px #00d4ff; }
   body[data-estado="pensando"] .ponto,
   body[data-estado="transcrevendo"] .ponto,
   body[data-estado="aquecendo"] .ponto { animation: pisca 1s ease-in-out infinite; }
@@ -43,7 +43,7 @@
   .ferramentas { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; min-height: 30px; margin-bottom: 18px; }
   .chip {
     font-size: 12px; letter-spacing: .08em; padding: 6px 12px; border: 1px solid var(--linha); border-radius: 999px;
-    background: rgba(255, 255, 255, .04); display: flex; gap: 8px; align-items: center; animation: entra .35s ease both;
+    background: rgba(0, 200, 255, .04); display: flex; gap: 8px; align-items: center; animation: entra .35s ease both;
   }
   .chip i { width: 6px; height: 6px; border-radius: 50%; background: var(--texto); animation: pisca 1s ease-in-out infinite; }
   .chip.feito { color: var(--suave); }
@@ -70,7 +70,7 @@
 
   #caixa { position: fixed; top: 76px; left: 50%; transform: translateX(-50%); width: min(640px, calc(100vw - 32px)); display: none; }
   #caixa input {
-    width: 100%; box-sizing: border-box; background: rgba(255, 255, 255, .06); border: 1px solid var(--linha);
+    width: 100%; box-sizing: border-box; background: rgba(0, 200, 255, .06); border: 1px solid var(--linha);
     border-radius: 12px; color: var(--texto); font: inherit; font-size: 16px; padding: 14px 16px; outline: none;
   }
   body.digitando #caixa { display: block; }
@@ -78,33 +78,33 @@
   /* Engrenagem: aparece só quando o mouse mexe (não atrapalha a gravação). */
   .engrenagem {
     position: fixed; top: 14px; right: 14px; z-index: 5; width: 40px; height: 40px; border: 0; border-radius: 999px;
-    background: transparent; color: rgba(255, 255, 255, .5); cursor: pointer; display: grid; place-items: center;
+    background: transparent; color: rgba(0, 200, 255, .5); cursor: pointer; display: grid; place-items: center;
     opacity: 0; transition: opacity .4s, background .2s, color .2s, transform .4s;
   }
   body.mouse .engrenagem, .engrenagem:focus-visible { opacity: 1; }
-  .engrenagem:hover { color: #fff; background: rgba(255, 255, 255, .08); transform: rotate(30deg); }
+  .engrenagem:hover { color: #00d4ff; background: rgba(0, 200, 255, .08); transform: rotate(30deg); }
 
   .config {
     position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center;
-    background: rgba(0, 0, 0, .6); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+    background: rgba(2, 8, 24, .7); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
   }
   .config[hidden] { display: none; }
   .config-caixa {
     width: min(460px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow: auto; box-sizing: border-box;
-    background: #0b0b0b; border: 1px solid rgba(255, 255, 255, .12); border-radius: 18px; padding: 20px;
+    background: #06122b; border: 1px solid rgba(0, 200, 255, .12); border-radius: 18px; padding: 20px;
     box-shadow: 0 30px 80px rgba(0, 0, 0, .6); user-select: none;
-    scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, .15) transparent;
+    scrollbar-width: thin; scrollbar-color: rgba(0, 200, 255, .15) transparent;
   }
   .config-caixa::-webkit-scrollbar { width: 8px; height: 0; }
-  .config-caixa::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .15); border-radius: 8px; }
+  .config-caixa::-webkit-scrollbar-thumb { background: rgba(0, 200, 255, .15); border-radius: 8px; }
   .config-caixa::-webkit-scrollbar-track { background: transparent; }
   .config-topo { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
   .config-titulo { font-size: 13px; letter-spacing: .28em; text-transform: uppercase; font-weight: 600; }
   .config-fechar {
-    width: 32px; height: 32px; border: 0; border-radius: 999px; background: rgba(255, 255, 255, .06);
+    width: 32px; height: 32px; border: 0; border-radius: 999px; background: rgba(0, 200, 255, .06);
     color: var(--suave); font-size: 18px; cursor: pointer; line-height: 1;
   }
-  .config-fechar:hover { color: #fff; background: rgba(255, 255, 255, .12); }
+  .config-fechar:hover { color: #00d4ff; background: rgba(0, 200, 255, .12); }
   .config-secao {
     display: flex; justify-content: space-between; margin: 18px 0 10px; font-size: 11px; letter-spacing: .22em;
     text-transform: uppercase; color: var(--suave);
@@ -113,39 +113,59 @@
   .grupo-voz { font-size: 11px; color: var(--fraco); margin: 12px 0 6px; letter-spacing: .08em; text-transform: uppercase; }
   .voz {
     display: grid; grid-template-columns: 16px 1fr auto; gap: 12px; align-items: center; width: 100%; box-sizing: border-box;
-    padding: 11px 12px; margin-bottom: 6px; border: 1px solid rgba(255, 255, 255, .08); border-radius: 12px;
-    background: rgba(255, 255, 255, .02); color: var(--texto); font: inherit; text-align: left; cursor: pointer;
+    padding: 11px 12px; margin-bottom: 6px; border: 1px solid rgba(0, 200, 255, .08); border-radius: 12px;
+    background: rgba(0, 200, 255, .02); color: var(--texto); font: inherit; text-align: left; cursor: pointer;
     transition: border-color .2s, background .2s;
   }
-  .voz:hover { background: rgba(255, 255, 255, .05); }
-  .voz.ativa { border-color: rgba(255, 255, 255, .7); background: rgba(255, 255, 255, .06); }
-  .voz .marca-voz { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid rgba(255, 255, 255, .45); box-sizing: border-box; }
-  .voz.ativa .marca-voz { background: #fff; border-color: #fff; box-shadow: 0 0 10px rgba(255, 255, 255, .6); }
+  .voz:hover { background: rgba(0, 200, 255, .05); }
+  .voz.ativa { border-color: rgba(0, 200, 255, .7); background: rgba(0, 200, 255, .06); }
+  .voz .marca-voz { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid rgba(0, 200, 255, .45); box-sizing: border-box; }
+  .voz.ativa .marca-voz { background: #00d4ff; border-color: #00d4ff; box-shadow: 0 0 10px rgba(0, 200, 255, .6); }
   .voz-nome { font-size: 15px; font-weight: 500; }
   .voz-desc { font-size: 12px; color: var(--suave); margin-top: 2px; }
   .ouvir {
-    font: inherit; font-size: 12px; padding: 6px 12px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, .2);
+    font: inherit; font-size: 12px; padding: 6px 12px; border-radius: 999px; border: 1px solid rgba(0, 200, 255, .2);
     background: transparent; color: var(--texto); cursor: pointer;
   }
-  .ouvir:hover { background: rgba(255, 255, 255, .1); }
-  .velocidade { width: 100%; accent-color: #fff; }
+  .ouvir:hover { background: rgba(0, 200, 255, .1); }
+  .velocidade { width: 100%; accent-color: #00d4ff; }
   .config-nota { margin-top: 14px; font-size: 12px; color: var(--fraco); }
+  .opcoes { display: flex; flex-wrap: wrap; gap: 6px; }
+  .opcao {
+    flex: 1 1 auto; min-width: 72px; padding: 9px 12px; border-radius: 12px; cursor: pointer; text-align: left;
+    border: 1px solid rgba(0, 200, 255, .08); background: rgba(0, 200, 255, .02); color: var(--texto); font: inherit;
+    transition: border-color .2s, background .2s;
+  }
+  .opcao:hover { background: rgba(0, 200, 255, .05); }
+  .opcao.ativa { border-color: rgba(0, 200, 255, .7); background: rgba(0, 200, 255, .08); }
+  .opcao-nome { font-size: 14px; font-weight: 500; }
+  .opcao-desc { font-size: 11px; color: var(--suave); margin-top: 2px; }
+  .opcao:disabled { opacity: .5; cursor: wait; }
 
   /* Mudo: sempre visível no canto de baixo, pra você saber se ele está ouvindo. */
   .botao-mudo {
-    position: fixed; left: 16px; bottom: 16px; z-index: 5; height: 38px; padding: 0 10px 0 12px;
+    position: fixed; left: 16px; top: 14px; z-index: 5; height: 38px; padding: 0 10px 0 12px;
     display: flex; align-items: center; gap: 8px; border: 1px solid var(--linha); border-radius: 999px;
-    background: rgba(255, 255, 255, .04); color: var(--suave); cursor: pointer;
+    background: rgba(0, 200, 255, .04); color: var(--suave); cursor: pointer;
     font: inherit; font-size: 11px; letter-spacing: .2em; text-transform: uppercase;
     transition: color .2s, background .2s, border-color .2s;
   }
-  .botao-mudo:hover { color: #fff; background: rgba(255, 255, 255, .1); }
+  .botao-mudo:hover { color: #00d4ff; background: rgba(0, 200, 255, .1); }
+  /* Modelo e esforço do Claude: sempre visível, ao lado do mudo; clicar abre a escolha */
+  .botao-cerebro {
+    position: fixed; left: 16px; top: 60px; z-index: 5; height: 34px; padding: 0 12px;
+    display: flex; align-items: center; gap: 8px; border: 1px solid var(--linha); border-radius: 999px;
+    background: rgba(0, 200, 255, .04); color: var(--suave); cursor: pointer;
+    font: inherit; font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+    transition: color .2s, background .2s;
+  }
+  .botao-cerebro:hover { color: #00d4ff; background: rgba(0, 200, 255, .1); }
   .botao-mudo kbd {
     font: inherit; font-size: 10px; letter-spacing: 0; padding: 2px 6px; border-radius: 6px;
     border: 1px solid var(--linha); color: var(--fraco);
   }
   .botao-mudo .icone-mudo { display: none; }
-  body.mudo .botao-mudo { color: #fff; border-color: rgba(255, 255, 255, .75); background: rgba(255, 255, 255, .1); }
+  body.mudo .botao-mudo { color: #00d4ff; border-color: rgba(0, 200, 255, .75); background: rgba(0, 200, 255, .1); }
   body.mudo .botao-mudo .icone-mic { display: none; }
   body.mudo .botao-mudo .icone-mudo { display: block; }
   canvas { transition: opacity .6s; }
@@ -156,13 +176,13 @@
   :root { --painel: min(400px, 34vw); }
   .painel {
     position: fixed; top: 0; right: 0; bottom: 0; width: var(--painel); z-index: 6; box-sizing: border-box;
-    display: flex; flex-direction: column; background: rgba(8, 8, 8, .94); border-left: 1px solid rgba(255, 255, 255, .1);
+    display: flex; flex-direction: column; background: rgba(3, 12, 32, .94); border-left: 1px solid rgba(0, 200, 255, .1);
     transition: transform .35s ease; user-select: text;
   }
   body.sem-painel .painel { transform: translateX(100%); visibility: hidden; transition: transform .35s ease, visibility 0s .35s; }
   .painel-topo {
     display: flex; align-items: center; gap: 12px; padding: 16px 16px 14px 20px;
-    border-bottom: 1px solid rgba(255, 255, 255, .08);
+    border-bottom: 1px solid rgba(0, 200, 255, .08);
   }
   .painel-titulo { font-size: 12px; letter-spacing: .28em; text-transform: uppercase; font-weight: 600; }
   .painel-estado {
@@ -171,22 +191,22 @@
   }
   .painel-lista {
     flex: 1; overflow-y: auto; padding: 8px 20px 24px; scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, .15) transparent;
+    scrollbar-color: rgba(0, 200, 255, .15) transparent;
   }
   .painel-vazio { margin-top: 24px; font-size: 13px; line-height: 1.6; color: var(--fraco); }
-  .p-turno { padding: 14px 0 16px; border-bottom: 1px solid rgba(255, 255, 255, .07); animation: entra .35s ease both; }
+  .p-turno { padding: 14px 0 16px; border-bottom: 1px solid rgba(0, 200, 255, .07); animation: entra .35s ease both; }
   .p-hora { font-size: 10px; letter-spacing: .2em; color: var(--fraco); margin-bottom: 10px; }
   .p-linha { margin: 0 0 12px; font-size: 13px; line-height: 1.5; animation: entra .3s ease both; }
   .p-rotulo { font-size: 10px; letter-spacing: .22em; text-transform: uppercase; color: var(--suave); margin-bottom: 4px; }
   .p-texto { white-space: pre-wrap; overflow-wrap: anywhere; }
   .p-voce .p-texto { color: var(--suave); }
   .p-pensamento .p-texto, .p-nota .p-texto { color: var(--fraco); font-style: italic; }
-  .p-ferramenta { position: relative; padding: 8px 10px 8px 26px; border: 1px solid rgba(255, 255, 255, .1); border-radius: 10px; background: rgba(255, 255, 255, .03); }
+  .p-ferramenta { position: relative; padding: 8px 10px 8px 26px; border: 1px solid rgba(0, 200, 255, .1); border-radius: 10px; background: rgba(0, 200, 255, .03); }
   .p-ferramenta::before {
-    content: ""; position: absolute; left: 10px; top: 13px; width: 7px; height: 7px; border-radius: 50%; background: #fff; opacity: .4;
+    content: ""; position: absolute; left: 10px; top: 13px; width: 7px; height: 7px; border-radius: 50%; background: #00d4ff; opacity: .4;
   }
   .p-ferramenta.rodando::before { animation: pisca 1s ease-in-out infinite; opacity: 1; }
-  .p-ferramenta.ok::before { opacity: .9; box-shadow: 0 0 8px rgba(255, 255, 255, .6); }
+  .p-ferramenta.ok::before { opacity: .9; box-shadow: 0 0 8px rgba(0, 200, 255, .6); }
   .p-ferramenta.erro { border-color: rgba(255, 120, 120, .5); }
   .p-ferramenta.erro::before { background: #ff7b7b; opacity: 1; }
   .p-ferramenta .p-rotulo { color: var(--texto); margin-bottom: 2px; }
@@ -197,16 +217,16 @@
   .p-resultado { margin-top: 6px; color: var(--fraco); max-height: 4.8em; overflow: hidden; }
   .p-jarvis .p-rotulo { color: var(--texto); }
   .p-jarvis .p-texto { font-size: 15px; font-weight: 500; }
-  .p-escrito { margin-top: 10px; padding: 10px 12px; border: 1px solid rgba(255, 255, 255, .22); border-radius: 10px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
+  .p-escrito { margin-top: 10px; padding: 10px 12px; border: 1px solid rgba(0, 200, 255, .22); border-radius: 10px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
   .p-escrito-titulo { font-size: 10px; letter-spacing: .22em; text-transform: uppercase; color: var(--suave); margin-bottom: 6px; }
   .p-tempo { margin-top: 8px; font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--fraco); }
   .p-aviso { font-size: 12px; color: var(--fraco); }
   .abrir-painel {
     position: fixed; top: 14px; right: 62px; z-index: 5; height: 36px; padding: 0 10px 0 14px; display: flex;
-    align-items: center; gap: 8px; border: 1px solid var(--linha); border-radius: 999px; background: rgba(255, 255, 255, .04);
+    align-items: center; gap: 8px; border: 1px solid var(--linha); border-radius: 999px; background: rgba(0, 200, 255, .04);
     color: var(--suave); cursor: pointer; font: inherit; font-size: 11px; letter-spacing: .2em; text-transform: uppercase;
   }
-  .abrir-painel:hover { color: #fff; background: rgba(255, 255, 255, .1); }
+  .abrir-painel:hover { color: #00d4ff; background: rgba(0, 200, 255, .1); }
   .abrir-painel kbd { font: inherit; font-size: 10px; letter-spacing: 0; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--linha); color: var(--fraco); }
   body:not(.sem-painel) .abrir-painel { display: none; }
   @media (min-width: 901px) {
@@ -219,10 +239,59 @@
   }
   @media (max-width: 900px) { .painel { width: 100vw; } }
 
+  /* Tarefas: gaveta embaixo com o que ele já fez e o que falta (tecla K) */
+  :root { --gaveta: 230px; }
+  .tarefas {
+    position: fixed; left: 0; right: 0; bottom: 0; height: var(--gaveta); z-index: 4; box-sizing: border-box;
+    display: flex; flex-direction: column; background: rgba(3, 12, 32, .94); border-top: 1px solid rgba(0, 200, 255, .15);
+    transition: transform .35s ease; user-select: text;
+  }
+  body.sem-tarefas .tarefas { transform: translateY(100%); visibility: hidden; transition: transform .35s ease, visibility 0s .35s; }
+  .tarefas-topo { display: flex; align-items: center; justify-content: space-between; padding: 10px 18px 8px; font-size: 11px; letter-spacing: .24em; text-transform: uppercase; color: var(--suave); }
+  .tarefas-cols { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 0 18px 14px; }
+  .tarefas-col { min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(0, 200, 255, .15) transparent; }
+  .tarefas-col h3 { margin: 0 0 8px; font-size: 10px; letter-spacing: .24em; text-transform: uppercase; color: var(--fraco); font-weight: 500; position: sticky; top: 0; background: rgba(3, 12, 32, .96); padding: 2px 0; }
+  .tarefa { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; line-height: 1.4; padding: 5px 0; border-bottom: 1px solid rgba(0, 200, 255, .07); }
+  .tarefa i { flex: none; width: 9px; height: 9px; margin-top: 5px; border-radius: 50%; border: 1.5px solid rgba(0, 200, 255, .55); box-sizing: border-box; }
+  .tarefa.fazendo i { background: #00d4ff; border-color: #00d4ff; box-shadow: 0 0 8px rgba(0, 200, 255, .8); animation: pisca 1.2s ease-in-out infinite; }
+  .tarefa.feita { color: var(--suave); }
+  .tarefa.feita i { background: rgba(0, 200, 255, .5); border-color: transparent; }
+  .tarefas-vazio { font-size: 12px; color: var(--fraco); }
+  .abrir-tarefas {
+    position: fixed; right: 16px; bottom: 16px; z-index: 5; height: 36px; padding: 0 10px 0 14px; display: flex;
+    align-items: center; gap: 8px; border: 1px solid var(--linha); border-radius: 999px; background: rgba(0, 200, 255, .04);
+    color: var(--suave); cursor: pointer; font: inherit; font-size: 11px; letter-spacing: .2em; text-transform: uppercase;
+  }
+  .abrir-tarefas:hover { color: #00d4ff; background: rgba(0, 200, 255, .1); }
+  .abrir-tarefas kbd { font: inherit; font-size: 10px; letter-spacing: 0; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--linha); color: var(--fraco); }
+  body:not(.sem-tarefas) .abrir-tarefas { display: none; }
+  body:not(.sem-tarefas) .legenda { bottom: calc(var(--gaveta) + 4vh); }
+  body:not(.sem-tarefas) .dica { bottom: calc(var(--gaveta) + 10px); }
+  @media (min-width: 901px) { body:not(.sem-painel) .tarefas { right: var(--painel); } }
+  @media (max-width: 900px) { .tarefas { --gaveta: 200px; } .tarefas-cols { grid-template-columns: 1fr; } }
+
+  /* Recursos da máquina, no canto esquerdo */
+  .recursos {
+    position: fixed; left: 16px; top: 106px; z-index: 5; width: 188px; box-sizing: border-box; padding: 10px 12px 8px;
+    border: 1px solid var(--linha); border-radius: 14px; background: rgba(0, 200, 255, .04);
+    font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--suave);
+  }
+  .rec-linha { margin-bottom: 8px; }
+  .rec-linha > div { display: flex; justify-content: space-between; margin-bottom: 4px; }
+  .rec-linha b { font-weight: 500; color: var(--texto); letter-spacing: .04em; }
+  .rec-barra { height: 4px; border-radius: 4px; background: rgba(0, 200, 255, .12); overflow: hidden; }
+  .rec-barra i { display: block; height: 100%; width: 0; background: #00d4ff; box-shadow: 0 0 8px rgba(0, 200, 255, .7); transition: width .6s ease, background .3s; }
+  .rec-linha.alto .rec-barra i { background: #ffb347; box-shadow: 0 0 8px rgba(255, 179, 71, .7); }
+  .rec-linha.critico .rec-barra i { background: #ff7b7b; box-shadow: 0 0 8px rgba(255, 123, 123, .7); }
+  @media (max-width: 600px) {
+    .recursos { display: none; }
+    .botao-cerebro { top: auto; bottom: 16px; }  /* no celular, o modelo fica embaixo à esquerda */
+  }
+
   @keyframes pisca { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
   @keyframes entra { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
   @media (max-width: 600px) {
-    .topo { left: 16px; right: 16px; top: 18px; letter-spacing: .22em; }
+    .topo { left: 190px; right: 16px; top: 18px; letter-spacing: .22em; }
     .topo .atalhos { display: none; }
   }
 </style>
@@ -245,6 +314,11 @@
       <span class="config-titulo">Configurações</span>
       <button id="fecharConfig" class="config-fechar" aria-label="Fechar">×</button>
     </div>
+    <div class="config-secao" id="secaoCerebro"><span>Modelo do Claude</span></div>
+    <div id="listaModelos" class="opcoes" role="radiogroup" aria-label="Modelo do Claude"></div>
+    <div class="config-secao"><span>Esforço</span><span id="esforcoValor"></span></div>
+    <div id="listaEsforcos" class="opcoes" role="radiogroup" aria-label="Esforço"></div>
+    <div class="config-nota">Trocar modelo ou esforço reinicia a conversa; o segundo cérebro continua. Mais esforço deixa a resposta mais caprichada e mais lenta.</div>
     <div class="config-secao"><span>Voz do Jarvis</span></div>
     <div id="listaVozes"></div>
     <div class="config-secao"><span>Velocidade da fala</span><span id="velValor"></span></div>
@@ -263,14 +337,28 @@
   <div class="aviso" id="aviso"></div>
 </div>
 
+<button id="chipCerebro" class="botao-cerebro" title="Modelo e esforço do Claude">
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3a3 3 0 0 0-3 3 3 3 0 0 0-2 5.2A3 3 0 0 0 6 16a3 3 0 0 0 3 3h0a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zM15 3a3 3 0 0 1 3 3 3 3 0 0 1 2 5.2A3 3 0 0 1 18 16a3 3 0 0 1-3 3h0a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/></svg>
+  <span class="chip-cerebro-texto">Claude</span>
+</button>
+
 <button id="mudo" class="botao-mudo" aria-pressed="false" title="Microfone (M)">
   <svg class="icone-mic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
   <svg class="icone-mudo" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 9.3V6a3 3 0 0 0-5.7-1.3M9 9v2a3 3 0 0 0 4.9 2.3M5 11a7 7 0 0 0 11.4 5.4M19 11a7 7 0 0 1-.6 2.8M12 18v3M3 3l18 18"/></svg>
   <span class="mudo-texto">Ouvindo</span><kbd>M</kbd>
 </button>
 
-<div class="dica" id="dica">Fale à vontade · <b>M</b> mudo · <b>espaço</b> interrompe · <b>P</b> painel · <b>T</b> digitar · <b>N</b> nova conversa · <b>H</b> detalhes</div>
+<div class="dica" id="dica">Fale à vontade · <b>M</b> mudo · <b>espaço</b> interrompe · <b>P</b> painel · <b>K</b> tarefas · <b>T</b> digitar · <b>N</b> nova conversa · <b>H</b> detalhes</div>
 
+<div id="recursos" class="recursos" aria-label="Uso da máquina"></div>
+<section id="tarefas" class="tarefas" aria-label="Tarefas do Jarvis">
+  <div class="tarefas-topo"><span id="tarefasResumo">Tarefas</span><button id="fecharTarefas" class="config-fechar" aria-label="Fechar tarefas (K)" title="Fechar (K)">×</button></div>
+  <div class="tarefas-cols">
+    <div class="tarefas-col"><h3>Fazendo e a fazer</h3><div id="tarefasPendentes"></div></div>
+    <div class="tarefas-col"><h3>Feitas</h3><div id="tarefasFeitas"></div></div>
+  </div>
+</section>
+<button id="abrirTarefas" class="abrir-tarefas" aria-controls="tarefas" title="Tarefas (K)">Tarefas <span id="tarefasContagem"></span> <kbd>K</kbd></button>
 <aside id="painel" class="painel" aria-label="O que o Jarvis está pensando e fazendo">
   <div class="painel-topo">
     <span class="painel-titulo">Atividade</span>
@@ -451,6 +539,37 @@
     return Math.min(1, Math.sqrt(soma / amostras.length) * 4.5);
   }
 
+  // Aura de buraco negro: disco de acreção girando, luz curvada por cima e por baixo e o anel de fótons.
+  const ND = 2600;
+  const disco = [];
+  for (let i = 0; i < ND; i++) {
+    const r = 1.2 + Math.pow(Math.random(), 1.9) * 1.5;
+    const q = (r - 1.2) / 1.5;  // 0 = borda de dentro (quente), 1 = fora (fria)
+    const cor = [Math.round(210 - 210 * q), Math.round(245 - 125 * q), 255];
+    disco.push({ r, rl: 1.1 + q * 0.5, a: Math.random() * Math.PI * 2, v: 0.0105 / Math.pow(r, 1.5),
+      cor: cor.join(","), tam: 1 + Math.random() * 1.5, brilho: 0.6 + Math.random() * 0.4 });
+  }
+  function desenharDisco(cx, cy, R, parte, vel) {
+    ctx.globalCompositeOperation = "lighter";
+    for (let i = 0; i < ND; i++) {
+      const d = disco[i];
+      const s = Math.sin(d.a), c = Math.cos(d.a);
+      const atras = s < 0;
+      if ((parte === "atras") !== atras) continue;
+      const dop = 0.5 + 0.5 * c;  // lado que se aproxima fica mais brilhante
+      const base = d.brilho * (0.35 + 0.65 * dop) * (1 - (d.r - 1.2) / 4);
+      ctx.fillStyle = `rgba(${d.cor},${Math.min(1, base * (1.3 + nivel))})`;
+      // disco achatado, visto quase de lado
+      ctx.fillRect(cx + c * d.r * R - d.tam / 2, cy + s * d.r * R * 0.24 - d.tam / 2, d.tam, d.tam);
+      if (atras) {  // a luz do fundo do disco dobra por cima e por baixo do buraco
+        ctx.fillRect(cx + c * d.rl * R - d.tam / 2, cy + s * d.rl * R - d.tam / 2, d.tam, d.tam);
+        ctx.fillStyle = `rgba(${d.cor},${Math.min(1, base * 0.6)})`;
+        ctx.fillRect(cx + c * d.rl * R - d.tam / 2, cy - s * d.rl * R * 0.9 - d.tam / 2, d.tam, d.tam);
+      }
+    }
+    ctx.globalCompositeOperation = "source-over";
+  }
+
   let nivel = 0, rot = 0, veloc = 0.002;
   const t0 = performance.now();
   const trabalhando = () => ["pensando", "transcrevendo", "aquecendo", "iniciando"].includes(estado);
@@ -474,14 +593,29 @@
     const R = Math.min(W, H) * 0.2 * (1 + nivel * 0.3);
 
     const brilho = ctx.createRadialGradient(cx, cy, R * 0.05, cx, cy, R * 2.1);
-    brilho.addColorStop(0, `rgba(255,255,255,${0.09 + nivel * 0.22})`);
-    brilho.addColorStop(0.4, `rgba(255,255,255,${0.025 + nivel * 0.05})`);
-    brilho.addColorStop(1, "rgba(255,255,255,0)");
+    brilho.addColorStop(0, `rgba(0, 200, 255, ${0.09 + nivel * 0.22})`);
+    brilho.addColorStop(0.4, `rgba(0, 200, 255, ${0.025 + nivel * 0.05})`);
+    brilho.addColorStop(1, "rgba(0, 200, 255, 0)");
     ctx.globalAlpha = 1;
     ctx.fillStyle = brilho;
     ctx.fillRect(0, 0, W, H);
 
-    ctx.fillStyle = "#fff";
+    for (let i = 0; i < ND; i++) disco[i].a += disco[i].v * (1 + veloc * 150);
+    desenharDisco(cx, cy, R, "atras");
+    // horizonte de eventos: um núcleo escuro com o anel de fótons na borda
+    const hor = ctx.createRadialGradient(cx, cy, R * 0.2, cx, cy, R * 1.04);
+    hor.addColorStop(0, "rgba(1, 4, 14, .92)");
+    hor.addColorStop(0.85, "rgba(1, 4, 14, .85)");
+    hor.addColorStop(1, "rgba(1, 4, 14, 0)");
+    ctx.fillStyle = hor;
+    ctx.beginPath(); ctx.arc(cx, cy, R * 1.04, 0, Math.PI * 2); ctx.fill();
+    ctx.save();
+    ctx.shadowColor = "rgba(120, 225, 255, .95)"; ctx.shadowBlur = 18 + nivel * 30;
+    ctx.strokeStyle = `rgba(200, 245, 255, ${0.55 + nivel * 0.4})`; ctx.lineWidth = 1.4 + nivel * 2;
+    ctx.beginPath(); ctx.arc(cx, cy, R * 1.04, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+
+    ctx.fillStyle = "#00d4ff";
     const cr = Math.cos(rot), sr = Math.sin(rot);
     const inc = 0.42, ci = Math.cos(inc), si = Math.sin(inc);
     const forca = estado === "falando" || estado === "ouvindo" ? 0.6 : 0.35;
@@ -498,6 +632,7 @@
       ctx.fillRect(cx + x1 * R * esc - tam / 2, cy + y1 * R * esc - tam / 2, tam, tam);
     }
     ctx.globalAlpha = 1;
+    desenharDisco(cx, cy, R, "frente");
     requestAnimationFrame(quadro);
   }
   requestAnimationFrame(quadro);
@@ -865,6 +1000,71 @@
     avisoTimer = setTimeout(() => { el("aviso").textContent = ""; }, 6000);
   }
 
+  // ---- Tarefas (gaveta de baixo) ----
+  function desenharTarefas(itens) {
+    const pend = el("tarefasPendentes"), feit = el("tarefasFeitas");
+    pend.textContent = ""; feit.textContent = "";
+    const ordem = { fazendo: 0, fazer: 1 };
+    const add = (alvo, t) => {
+      const d = document.createElement("div"); d.className = "tarefa " + t.estado;
+      const i = document.createElement("i"), x = document.createElement("span"); x.textContent = t.texto;
+      d.append(i, x); alvo.appendChild(d);
+    };
+    const abertas = itens.filter((t) => t.estado !== "feita").sort((a, b) => ordem[a.estado] - ordem[b.estado]);
+    const feitas = itens.filter((t) => t.estado === "feita").reverse();
+    abertas.forEach((t) => add(pend, t)); feitas.forEach((t) => add(feit, t));
+    if (!abertas.length) pend.innerHTML = '<div class="tarefas-vazio">Nada pendente.</div>';
+    if (!feitas.length) feit.innerHTML = '<div class="tarefas-vazio">Ainda nada feito.</div>';
+    el("tarefasResumo").textContent = "Tarefas · " + feitas.length + " feitas · " + abertas.length + " por fazer";
+    el("tarefasContagem").textContent = feitas.length + "/" + itens.length;
+  }
+  function carregarTarefas() { fetch("/api/tarefas").then((r) => r.json()).then((d) => desenharTarefas(d.itens || [])).catch(() => {}); }
+  function alternarTarefas(abrir) {
+    const fechar = abrir === undefined ? !corpo.classList.contains("sem-tarefas") : !abrir;
+    corpo.classList.toggle("sem-tarefas", fechar);
+    try { localStorage.setItem("tarefas", fechar ? "0" : "1"); } catch (_) {}
+    if (!fechar) carregarTarefas();
+  }
+  let tarefasAberta = false;
+  try { tarefasAberta = localStorage.getItem("tarefas") === "1"; } catch (_) {}
+  corpo.classList.toggle("sem-tarefas", !tarefasAberta);
+  el("abrirTarefas").addEventListener("click", () => alternarTarefas(true));
+  el("fecharTarefas").addEventListener("click", () => alternarTarefas(false));
+  carregarTarefas();
+
+  // ---- Recursos da máquina ----
+  const RECURSOS = [["cpu", "CPU"], ["ram", "RAM"], ["gpu", "GPU"], ["vram", "VRAM"], ["disco", "Disco"]];
+  function desenharRecursos(d) {
+    const box = el("recursos");
+    if (!box.children.length) {
+      RECURSOS.forEach(([id, nome]) => {
+        const l = document.createElement("div"); l.className = "rec-linha"; l.id = "rec-" + id;
+        l.innerHTML = "<div><span>" + nome + '</span><b>--</b></div><div class="rec-barra"><i></i></div>';
+        box.appendChild(l);
+      });
+    }
+    const v = {
+      cpu: d.cpu == null ? null : [d.cpu, d.cpu + "%"],
+      ram: d.ram && [d.ram.pct, d.ram.usado + "/" + d.ram.total + " GB"],
+      gpu: d.gpu && [d.gpu.pct, d.gpu.pct + "%"],
+      vram: d.gpu && [d.gpu.vram_pct, d.gpu.vram_usada + "/" + d.gpu.vram_total + " GB"],
+      disco: d.disco && [d.disco.pct, d.disco.usado + "/" + d.disco.total + " GB"],
+    };
+    RECURSOS.forEach(([id]) => {
+      const l = el("rec-" + id), x = v[id];
+      l.querySelector("b").textContent = x ? x[1] : "--";
+      l.querySelector("i").style.width = (x ? Math.min(100, x[0]) : 0) + "%";
+      l.classList.toggle("alto", !!x && x[0] >= 80 && x[0] < 92);
+      l.classList.toggle("critico", !!x && x[0] >= 92);
+    });
+  }
+  function lerRecursos() {
+    if (document.hidden) return;
+    fetch("/api/recursos").then((r) => r.json()).then(desenharRecursos).catch(() => {});
+  }
+  lerRecursos();
+  setInterval(lerRecursos, 2000);
+
   function conectar() {
     const fonte = new EventSource("/api/eventos");
     fonte.onmessage = (ev) => {
@@ -881,6 +1081,8 @@
         painelVoce(e.texto);
       } else if (e.tipo === "ferramenta") {
         chip(e.rotulo);
+      } else if (e.tipo === "tarefas") {
+        desenharTarefas(e.itens || []);
       } else if (e.tipo === "passo") {
         painelPasso(e);
       } else if (e.tipo === "fala") {
@@ -949,12 +1151,51 @@
     el("velValor").textContent = vel(config.velocidade);
   }
 
+  function botaoOpcao(nome, desc, ativa, aoEscolher) {
+    const b = document.createElement("button");
+    b.className = "opcao" + (ativa ? " ativa" : "");
+    b.setAttribute("role", "radio");
+    b.setAttribute("aria-checked", ativa ? "true" : "false");
+    b.innerHTML = '<div class="opcao-nome"></div>' + (desc ? '<div class="opcao-desc"></div>' : "");
+    b.querySelector(".opcao-nome").textContent = nome;
+    if (desc) b.querySelector(".opcao-desc").textContent = desc;
+    b.addEventListener("click", aoEscolher);
+    return b;
+  }
+
+  // Modelo e esforço do Claude: a escolha reinicia a sessão dele no servidor
+  function desenharCerebro() {
+    const modelos = el("listaModelos"), esforcos = el("listaEsforcos");
+    modelos.innerHTML = "";
+    esforcos.innerHTML = "";
+    (config.modelos || []).forEach((m) => modelos.appendChild(
+      botaoOpcao(m.nome, m.descricao, m.id === config.modelo, () => escolherCerebro({ modelo: m.id }))));
+    (config.esforcos || []).forEach((e) => esforcos.appendChild(
+      botaoOpcao(e.nome, "", e.id === config.esforco, () => escolherCerebro({ esforco: e.id }))));
+    desenharChipCerebro();
+  }
+
+  function desenharChipCerebro() {
+    if (!config || !config.modelos) return;
+    const m = config.modelos.find((x) => x.id === config.modelo);
+    const e = (config.esforcos || []).find((x) => x.id === config.esforco);
+    el("chipCerebro").querySelector(".chip-cerebro-texto").textContent =
+      (m ? m.nome : config.modelo) + " · " + (e ? e.nome.toLowerCase() : config.esforco);
+  }
+
+  async function escolherCerebro(mudanca) {
+    if ((mudanca.modelo && mudanca.modelo === config.modelo) || (mudanca.esforco && mudanca.esforco === config.esforco)) return;
+    document.querySelectorAll(".opcao").forEach((b) => { b.disabled = true; });
+    await salvarConfig(mudanca);  // o servidor avisa "Trocando para..." e "Pronto" pela tela
+  }
+
   async function salvarConfig(mudanca) {
     const r = await fetch("/api/config", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(mudanca),
     });
     config = await r.json();
     desenharVozes();
+    desenharCerebro();
   }
 
   function tocarAmostra(id) {
@@ -973,8 +1214,16 @@
     const r = await fetch("/api/config");
     config = await r.json();
     desenharVozes();
+    desenharCerebro();
     painel.hidden = false;
   }
+
+  el("chipCerebro").addEventListener("click", async (ev) => {
+    ev.currentTarget.blur();
+    await abrirConfig();
+    el("secaoCerebro").scrollIntoView({ block: "start" });
+  });
+  fetch("/api/config").then((r) => r.json()).then((c) => { config = c; desenharChipCerebro(); }).catch(() => {});
 
   function fecharConfig() { painel.hidden = true; }
 
@@ -1013,6 +1262,7 @@
     if (k === "t") { e.preventDefault(); corpo.classList.add("digitando"); el("entrada").focus(); }
     if (k === "h") corpo.classList.toggle("detalhes");
     if (k === "p") { e.preventDefault(); alternarPainel(); }
+    if (k === "k") { e.preventDefault(); alternarTarefas(); }
     if (k === "n") { novoTurno(); fetch("/api/reiniciar", { method: "POST" }); avisar("Conversa nova."); }
   });
 

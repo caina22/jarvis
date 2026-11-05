@@ -2,11 +2,13 @@
 
 Uso: python whatsapp_leitura.py <saida.json>
 
+- Configuração atual (2026-11-05): só lê a conversa "Cainã (você)" (o número fica no .env, JARVIS_NUMERO_WHATSAPP). Outras conversas não são abertas.
 - Usa o filtro "Não lidas". Abre só conversas individuais sem resposta.
 - NÃO abre os contatos importantes (Pai, Mãe, Angela Mans, Vó Dudes) nem grupos: só lista.
 - Ao final, volta o filtro para "Tudo".
 """
 import json
+import os
 import re
 import sys
 import time
@@ -14,6 +16,29 @@ from pathlib import Path
 
 from pywinauto import Desktop, mouse
 
+
+def _numero_proprio():
+    """Número do dono como o WhatsApp mostra (ex.: +55 11 90000-0000). Fica no .env
+    (JARVIS_NUMERO_WHATSAPP), nunca no código, porque o repositório é público."""
+    valor = os.environ.get("JARVIS_NUMERO_WHATSAPP", "")
+    if not valor:
+        try:
+            for linha in (Path(__file__).parent / ".env").read_text(encoding="utf-8-sig").splitlines():
+                if linha.startswith("JARVIS_NUMERO_WHATSAPP="):
+                    valor = linha.split("=", 1)[1].strip().strip('"').strip("'")
+        except OSError:
+            pass
+    return valor
+
+
+def nome_proprio():
+    """Padrão do nome da conversa consigo mesmo: 'Cainã' ou o número, se estiver no .env."""
+    numero = _numero_proprio()
+    return "(Cainã|" + re.escape(numero) + ")" if numero else "(Cainã)"
+
+
+# Só a conversa consigo mesmo (Cainã (você)). Qualquer outra conversa é ignorada e não é aberta.
+SO_EU = re.compile(r"^(Mostrar status\s+)?(\d+ mensagens? não lidas? |1 mensagem não lida )?" + nome_proprio() + r" \(você\)")
 IMPORTANTE = re.compile(r"^(\d+ mensagens? não lidas? )?(Pai|Mãe|Angela Mans|Vó Dudes)\b")
 GRUPO = re.compile(r" : |~|Diretoria|Congresso|Cofras|GTI|GRUPO|Grupo|UNIADQB|AD QUATRO|Imperium|Familia|Família|"
                    r"Jantar quinzenal|Protocolo|PROTOCOLO|IFPR|Netos|Turma|Equipe|Lobão|Tony|OFERTAS|COMUNIDADE|"
@@ -154,6 +179,9 @@ def main():
         alvo = None
         for n, f in linhas():
             if n in feitos:
+                continue
+            if not SO_EU.search(n):  # configuração atual: só lê a conversa "Cainã (você)"
+                feitos.add(n)
                 continue
             if IMPORTANTE.search(n):
                 importantes.append({"nome": nome_limpo(n), "qtd": qtd_nao_lidas(n)})

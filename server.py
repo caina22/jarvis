@@ -306,6 +306,35 @@ def _passo_memoria(rotulo, texto, erro):
     EVENTOS.emitir({"tipo": "passo", "passo": "resultado", "id": id_passo, "erro": erro, "texto": texto})
 
 
+_LINK_NOTA = re.compile(r"\[\[([^\]|#]+)")
+
+
+def grafo_cerebro():
+    """Notas do segundo cérebro (sem o Diário) como nós e os [[links]] entre elas como arestas.
+    O id de cada nó é o mesmo caminho relativo que o evento 'memoria' usa."""
+    pasta = CFG["cerebro"]
+    if not pasta or not pasta.is_dir():
+        return {"nos": [], "links": []}
+    textos, por_nome = {}, {}
+    for n in sorted(pasta.rglob("*.md")):
+        rel = n.relative_to(pasta)
+        if "Diário" in rel.parts:
+            continue
+        try:
+            textos[rel.as_posix()] = n.read_text(encoding="utf-8-sig")
+        except (OSError, UnicodeDecodeError):
+            continue
+        por_nome.setdefault(n.stem.lower(), rel.as_posix())
+    links = set()
+    for origem, texto in textos.items():
+        for alvo in _LINK_NOTA.findall(texto):
+            destino = por_nome.get(alvo.strip().lower())
+            if destino and destino != origem:
+                links.add(tuple(sorted((origem, destino))))
+    nos = [{"id": i, "nome": Path(i).stem} for i in textos]
+    return {"nos": nos, "links": [list(l) for l in sorted(links)]}
+
+
 def bloco_memoria(consulta):
     """Bloco com as notas do segundo cérebro mais próximas em significado da consulta. "" se desligado ou em qualquer falha."""
     global _ULTIMO_AVISO_MEMORIA
@@ -1562,6 +1591,9 @@ def prebusca(texto):
     for g in GATILHOS:
         alvos = {" ".join(normalizar(p)) for p in g.get("palavras", [])}
         if palavras & alvos:
+            if not atalho_permitido(g["comando"][0]):
+                log({"evento": "atalho_recusado", "comando": g["comando"][0]})
+                continue
             cmd = [sys.executable, str(RAIZ / "atalhos" / g["comando"][0])] + g["comando"][1:]
             if g.get("periodo"):
                 cmd += periodo_falado(texto)
@@ -1733,10 +1765,24 @@ def gravar_avisos_prontos():
             Fala.fixa(frase)
 
 
+ATALHOS_DIR = (RAIZ / "atalhos").resolve()
+
+
+def atalho_permitido(nome):
+    """Lista de permitidos: só um .py que existe dentro da pasta atalhos (sem caminho, sem '..')."""
+    if not re.fullmatch(r"[\w\-]+\.py", nome or ""):
+        return False
+    alvo = (ATALHOS_DIR / nome).resolve()
+    return alvo.parent == ATALHOS_DIR and alvo.is_file()
+
+
 def aquecer_atalhos():
     """Roda atalhos lentos quando abre (ex.: o resumo da isca de ontem), pra resposta sair na hora."""
     for comando in filter(None, (c.strip() for c in CFG["aquecer_atalhos"].split(";"))):
         partes = shlex.split(comando)
+        if not partes or not atalho_permitido(partes[0]):
+            log({"evento": "atalho_recusado", "comando": comando})
+            continue
         try:
             subprocess.run([sys.executable, str(RAIZ / "atalhos" / partes[0])] + partes[1:],
                            cwd=str(RAIZ), capture_output=True, timeout=180)
@@ -1772,6 +1818,43 @@ TIPOS = {".html": "text/html; charset=utf-8", ".js": "application/javascript; ch
 COOKIE = "jarvis_sessao"
 LOCAIS = {f"localhost:{CFG['porta']}", f"127.0.0.1:{CFG['porta']}"}
 TENTATIVAS = {"falhas": 0, "bloqueado_ate": 0.0, "trava": threading.Lock()}
+TENTATIVAS_ARQ = RAIZ / ".estado" / "tentativas.json"  # guardado em disco: reiniciar o servidor não zera o bloqueio
+# Espera por número de erros seguidos: 1 erro = 30 s, 2 = 1 min, 3 = 4 min, 4 = 1 h,
+# depois dobra a cada erro (5 = 2 h, 6 = 4 h...) até o teto de 24 h.
+ESPERA_ERROS = {1: 30, 2: 60, 3: 240, 4: 3600}
+
+
+def espera_apos(falhas):
+    if falhas in ESPERA_ERROS:
+        return ESPERA_ERROS[falhas]
+    return min(3600 * 2 ** (falhas - 4), 86400)
+
+
+def formatar_espera(segundos):
+    s = int(round(segundos))
+    if s < 60:
+        return f"{s} segundos"
+    if s < 3600:
+        return f"{round(s / 60)} minuto(s)"
+    return f"{round(s / 3600)} hora(s)"
+
+
+def carregar_tentativas():
+    try:
+        dados = json.loads(TENTATIVAS_ARQ.read_text(encoding="utf-8"))
+        TENTATIVAS["falhas"] = int(dados.get("falhas", 0))
+        TENTATIVAS["bloqueado_ate"] = float(dados.get("bloqueado_ate", 0.0))
+    except Exception:
+        pass
+
+
+def salvar_tentativas():
+    TENTATIVAS_ARQ.parent.mkdir(exist_ok=True)
+    TENTATIVAS_ARQ.write_text(json.dumps({"falhas": TENTATIVAS["falhas"],
+                                          "bloqueado_ate": TENTATIVAS["bloqueado_ate"]}), encoding="utf-8")
+
+
+carregar_tentativas()
 
 TELA_ENTRAR = """<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>JARVIS</title>
@@ -1847,23 +1930,27 @@ class Servidor(BaseHTTPRequestHandler):
         if not CFG["token"]:
             return self.tela_entrar(503, "Acesso de fora desligado: falta o JARVIS_TOKEN no .env do PC.")
         with TENTATIVAS["trava"]:
-            if time.time() < TENTATIVAS["bloqueado_ate"]:
-                return self.tela_entrar(429, "Muitas tentativas. Espere 5 minutos.")
+            falta = TENTATIVAS["bloqueado_ate"] - time.time()
+            if falta > 0:
+                log({"evento": "acesso_bloqueado"})
+                return self.tela_entrar(429, f"Muitas tentativas. Espere {formatar_espera(falta)}.")
         token = urllib.parse.parse_qs(corpo).get("token", [""])[0]
         if hmac.compare_digest(token.encode(), CFG["token"].encode()):
             with TENTATIVAS["trava"]:
                 TENTATIVAS["falhas"] = 0
+                TENTATIVAS["bloqueado_ate"] = 0.0
+                salvar_tentativas()
             log({"evento": "acesso_liberado"})
             cookie = f"{COOKIE}={sessao_esperada()}; Path=/; Max-Age=7776000; HttpOnly; Secure; SameSite=Lax"
             return self.redirecionar("/", cookie)
         time.sleep(1)
         with TENTATIVAS["trava"]:
             TENTATIVAS["falhas"] += 1
-            if TENTATIVAS["falhas"] >= 5:
-                TENTATIVAS["falhas"] = 0
-                TENTATIVAS["bloqueado_ate"] = time.time() + 300
-        log({"evento": "acesso_negado"})
-        self.tela_entrar(401, "Senha errada.")
+            espera = espera_apos(TENTATIVAS["falhas"])
+            TENTATIVAS["bloqueado_ate"] = time.time() + espera
+            salvar_tentativas()
+        log({"evento": "acesso_negado", "falhas_seguidas": TENTATIVAS["falhas"], "espera_s": espera})
+        self.tela_entrar(401, f"Senha errada. Próxima tentativa em {formatar_espera(espera)}.")
 
     def responder(self, codigo, corpo=b"", tipo="application/json"):
         self.send_response(codigo)
@@ -1889,6 +1976,8 @@ class Servidor(BaseHTTPRequestHandler):
             return self.responder(200, json.dumps(recursos()).encode())
         if caminho == "/api/tarefas":
             return self.responder(200, json.dumps({"itens": ler_tarefas()}, ensure_ascii=False).encode())
+        if caminho == "/api/grafo":
+            return self.responder(200, json.dumps(grafo_cerebro(), ensure_ascii=False).encode())
         if caminho.startswith("/api/amostra/"):
             return self.amostra(caminho.rsplit("/", 1)[-1])
         if caminho.startswith("/api/voz/"):

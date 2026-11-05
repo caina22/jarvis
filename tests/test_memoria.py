@@ -11,6 +11,11 @@ import memoria
 EIXOS = ["preço", "klog", "motorola"]
 
 
+def vetor_falso(textos):
+    return [[1.0 if p in t.lower() else 0.0 for p in EIXOS] + [0.1]
+            for t in textos]
+
+
 class TestDividir(unittest.TestCase):
     def test_dividir_por_titulos(self):
         r = memoria.dividir("intro\n## A\nx\n## B\n\n## C\ny", "Nota")
@@ -43,8 +48,7 @@ class TestMemoria(unittest.TestCase):
 
     def embed_falso(self, textos):
         self.chamadas.append(list(textos))
-        return [[1.0 if p in t.lower() else 0.0 for p in EIXOS] + [0.1]
-                for t in textos]
+        return vetor_falso(textos)
 
     def nova(self, embed=None):
         return memoria.Memoria(self.pasta, self.indice,
@@ -193,6 +197,45 @@ class TestMemoria(unittest.TestCase):
         self.assertEqual(self.mem.modelo, memoria.MODELO_PADRAO)
         self.assertEqual(self.mem.url, memoria.URL_PADRAO)
         self.assertEqual(self.mem.timeout, 3)
+
+
+
+class TestBlocoEEnv(unittest.TestCase):
+    TITULO = "## Notas que podem ajudar (segundo cérebro)"
+
+    def test_bloco_vazio(self):
+        self.assertEqual(memoria.bloco_contexto([]), "")
+
+    def test_bloco_formato(self):
+        b = memoria.bloco_contexto([{"nota": "Studio P3D/Studio P3D.md",
+                                     "titulo": "Preços", "texto": "R$ 120/kg",
+                                     "score": 0.8}])
+        self.assertIn(self.TITULO, b)
+        self.assertIn("### Studio P3D/Studio P3D.md — Preços\nR$ 120/kg", b)
+
+    def test_bloco_limite(self):
+        trechos = [{"nota": f"n{i}.md", "titulo": "T", "texto": "x" * 1000,
+                    "score": 0.9} for i in range(3)]
+        b = memoria.bloco_contexto(trechos)
+        corpo = b.split(self.TITULO + "\n", 1)[1]
+        self.assertLessEqual(len(corpo), 1500)
+        self.assertIn("n1.md", corpo)  # o último é cortado, não omitido
+
+    def test_de_env(self):
+        with tempfile.TemporaryDirectory() as d:
+            raiz = Path(d)
+            cerebro = raiz / "cerebro"
+            (raiz / ".env").write_text(
+                f'# comentário\nJARVIS_CEREBRO="{cerebro}"\nJARVIS_MEMORIA=0\n'
+                "JARVIS_MEMORIA_MINIMO=0.7\n", encoding="utf-8")
+            mem, config = memoria.de_env(raiz)
+            self.assertEqual(mem.pasta, cerebro)
+            self.assertEqual(mem.indice, raiz / ".estado" / "memoria.json")
+            self.assertEqual(config, {"ligada": False, "minimo": 0.7})
+            (raiz / ".env").write_text("JARVIS_MEMORIA=1\n", encoding="utf-8")
+            mem, config = memoria.de_env(raiz)
+            self.assertIsNone(mem)
+            self.assertEqual(config, {"ligada": True, "minimo": 0.55})
 
 
 if __name__ == "__main__":

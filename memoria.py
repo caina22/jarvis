@@ -209,3 +209,54 @@ class Memoria:
         except Exception as e:
             self.ultimo_erro = f"falha na busca: {e}"
             return []
+
+
+# -- integração ------------------------------------------------------------
+TITULO_BLOCO = "\n\n## Notas que podem ajudar (segundo cérebro)\n"
+
+
+def bloco_contexto(trechos: list[dict], limite: int = 1500) -> str:
+    """Monta o bloco de contexto com os trechos achados. O que vem depois do
+    título nunca passa de `limite` caracteres; o último trecho é cortado."""
+    if not trechos:
+        return ""
+    corpo = ""
+    for t in trechos:
+        cabecalho = f"### {t['nota']} — {t['titulo']}\n"
+        sobra = limite - len(corpo)
+        if sobra <= len(cabecalho):
+            break
+        corpo += (cabecalho + t["texto"] + "\n")[:sobra]
+    return TITULO_BLOCO + corpo if corpo else ""
+
+
+def _ler_env(arquivo: Path) -> dict[str, str]:
+    valores = {}
+    try:
+        linhas = arquivo.read_text(encoding="utf-8-sig").splitlines()
+    except OSError:
+        return valores
+    for linha in linhas:
+        linha = linha.strip()
+        if not linha or linha.startswith("#") or "=" not in linha:
+            continue
+        chave, _, valor = linha.partition("=")
+        valores[chave.strip()] = valor.strip().strip('"').strip("'")
+    return valores
+
+
+def de_env(raiz: Path) -> tuple["Memoria | None", dict]:
+    """Lê `raiz/.env` e monta a Memoria. Sem JARVIS_CEREBRO devolve None."""
+    raiz = Path(raiz)
+    env = _ler_env(raiz / ".env")
+    try:
+        minimo = float(env.get("JARVIS_MEMORIA_MINIMO") or 0.55)
+    except ValueError:
+        minimo = 0.55
+    config = {"ligada": env.get("JARVIS_MEMORIA") != "0", "minimo": minimo}
+    cerebro = env.get("JARVIS_CEREBRO")
+    if not cerebro:
+        return None, config
+    mem = Memoria(Path(cerebro), raiz / ".estado" / "memoria.json",
+                  modelo=env.get("JARVIS_MEMORIA_MODELO") or MODELO_PADRAO)
+    return mem, config

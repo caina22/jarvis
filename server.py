@@ -293,6 +293,52 @@ def contexto_cerebro():
     return "".join(partes)
 
 
+# ---------------------------------------------------------------- memória por significado
+import memoria  # noqa: E402
+
+MEMORIA, MEMORIA_CFG = memoria.de_env(RAIZ)
+_ULTIMO_AVISO_MEMORIA = 0.0
+
+
+def _passo_memoria(rotulo, texto, erro):
+    id_passo = f"memoria-{uuid.uuid4().hex[:8]}"
+    EVENTOS.emitir({"tipo": "passo", "passo": "ferramenta", "id": id_passo, "rotulo": rotulo, "detalhe": ""})
+    EVENTOS.emitir({"tipo": "passo", "passo": "resultado", "id": id_passo, "erro": erro, "texto": texto})
+
+
+def com_memoria(texto):
+    """Anexa ao pedido as notas do segundo cérebro mais próximas em significado. Nunca levanta exceção."""
+    global _ULTIMO_AVISO_MEMORIA
+    if MEMORIA is None or not MEMORIA_CFG["ligada"]:
+        return texto
+    try:
+        trechos = MEMORIA.buscar(texto, n=3, minimo=MEMORIA_CFG["minimo"])
+        if not trechos:
+            if MEMORIA.ultimo_erro and time.time() - _ULTIMO_AVISO_MEMORIA >= 300:
+                _ULTIMO_AVISO_MEMORIA = time.time()
+                _passo_memoria("Memória", "memória indisponível", True)
+            return texto
+        notas = list(dict.fromkeys(t["nota"] for t in trechos))
+        EVENTOS.emitir({"tipo": "memoria", "notas": notas})
+        _passo_memoria("Consultou: " + ", ".join(notas), f"{len(trechos)} trecho(s)", False)
+        return texto + memoria.bloco_contexto(trechos)
+    except Exception as e:
+        try:
+            log({"tipo": "memoria_erro", "erro": str(e)})
+        except Exception:
+            pass
+        return texto
+
+
+def _indexar_ao_ligar():
+    try:
+        mem = memoria.Memoria(MEMORIA.pasta, MEMORIA.indice, modelo=MEMORIA.modelo,
+                              url=MEMORIA.url, timeout=120)
+        log({"tipo": "memoria_indexada", "notas": mem.indexar()})
+    except Exception as e:
+        log({"tipo": "memoria_erro", "erro": str(e)})
+
+
 def anotar_diario(voce, resposta, escrito="", quem="Claude"):
     """Cada conversa entra sozinha no diário do dia, mesmo que ninguém lembre de anotar."""
     pasta = CFG["cerebro"]
@@ -658,6 +704,7 @@ class SessaoClaude:
                 f.flush()
 
     def perguntar(self, texto, limite=300, ao_avisar=None, aviso_apos=None):
+        texto_final = com_memoria(texto)  # fora do lock: a busca roda enquanto a rodada anterior termina
         with self.lock:
             if not self.vivo():
                 self.iniciar()
@@ -668,7 +715,7 @@ class SessaoClaude:
             self.turno = turno
             self.livre.clear()
             self.ferramentas_turno = []
-            msg = {"type": "user", "message": {"role": "user", "content": [{"type": "text", "text": texto + LEMBRETE}]}}
+            msg = {"type": "user", "message": {"role": "user", "content": [{"type": "text", "text": texto_final + LEMBRETE}]}}
             self.proc.stdin.write(json.dumps(msg, ensure_ascii=False) + "\n")
             self.proc.stdin.flush()
             if aviso_apos:  # pergunta de dado: se demorar, fala "Um instante, Senhor."
@@ -2007,6 +2054,8 @@ def main():
         sys.exit("Não achei o Claude Code (comando 'claude'). Instale antes: https://claude.com/claude-code")
     if not tem_voz():
         print("Aviso: sem ELEVENLABS_API_KEY. Ele vai responder só em texto na tela.")
+    if MEMORIA is not None and MEMORIA_CFG["ligada"]:
+        threading.Thread(target=_indexar_ao_ligar, daemon=True).start()
     servidor = ThreadingHTTPServer(("127.0.0.1", CFG["porta"]), Servidor)
     servidor.daemon_threads = True
     url = f"http://localhost:{CFG['porta']}"

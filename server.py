@@ -1819,15 +1819,15 @@ COOKIE = "jarvis_sessao"
 LOCAIS = {f"localhost:{CFG['porta']}", f"127.0.0.1:{CFG['porta']}"}
 TENTATIVAS = {"falhas": 0, "bloqueado_ate": 0.0, "trava": threading.Lock()}
 TENTATIVAS_ARQ = RAIZ / ".estado" / "tentativas.json"  # guardado em disco: reiniciar o servidor não zera o bloqueio
-# Espera por número de erros seguidos: 1 erro = 30 s, 2 = 1 min, 3 = 4 min, 4 = 1 h,
-# depois dobra a cada erro (5 = 2 h, 6 = 4 h...) até o teto de 24 h.
-ESPERA_ERROS = {1: 30, 2: 60, 3: 240, 4: 3600}
+# Espera por número de erros seguidos: 1 erro = 30 s, 2 = 1 min, 3 = 4 min, 4 em diante = 15 min.
+# O bloqueio é global, então o teto é curto: um estranho que erre a senha de propósito não
+# consegue trancar o dono por mais que isso (e o acesso do próprio PC zera o bloqueio).
+TETO_ESPERA = 900
+ESPERA_ERROS = {1: 30, 2: 60, 3: 240}
 
 
 def espera_apos(falhas):
-    if falhas in ESPERA_ERROS:
-        return ESPERA_ERROS[falhas]
-    return min(3600 * 2 ** (falhas - 4), 86400)
+    return min(ESPERA_ERROS.get(falhas, TETO_ESPERA), TETO_ESPERA)
 
 
 def formatar_espera(segundos):
@@ -1852,6 +1852,18 @@ def salvar_tentativas():
     TENTATIVAS_ARQ.parent.mkdir(exist_ok=True)
     TENTATIVAS_ARQ.write_text(json.dumps({"falhas": TENTATIVAS["falhas"],
                                           "bloqueado_ate": TENTATIVAS["bloqueado_ate"]}), encoding="utf-8")
+
+
+def destravar_tentativas():
+    """Pedido direto do próprio PC zera o bloqueio de senha: o dono nunca fica trancado para fora."""
+    with TENTATIVAS["trava"]:
+        if not TENTATIVAS["falhas"] and not TENTATIVAS["bloqueado_ate"]:
+            return False
+        TENTATIVAS["falhas"] = 0
+        TENTATIVAS["bloqueado_ate"] = 0.0
+        salvar_tentativas()
+    log({"evento": "bloqueio_zerado_no_pc"})
+    return True
 
 
 carregar_tentativas()
@@ -1891,6 +1903,7 @@ class Servidor(BaseHTTPRequestHandler):
 
     def autorizado(self):
         if self.do_proprio_pc():
+            destravar_tentativas()
             return True
         esperado = sessao_esperada()
         if not esperado:

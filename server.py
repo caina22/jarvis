@@ -306,28 +306,28 @@ def _passo_memoria(rotulo, texto, erro):
     EVENTOS.emitir({"tipo": "passo", "passo": "resultado", "id": id_passo, "erro": erro, "texto": texto})
 
 
-def com_memoria(texto):
-    """Anexa ao pedido as notas do segundo cérebro mais próximas em significado. Nunca levanta exceção."""
+def bloco_memoria(consulta):
+    """Bloco com as notas do segundo cérebro mais próximas em significado da consulta. "" se desligado ou em qualquer falha."""
     global _ULTIMO_AVISO_MEMORIA
     if MEMORIA is None or not MEMORIA_CFG["ligada"]:
-        return texto
+        return ""
     try:
-        trechos = MEMORIA.buscar(texto, n=3, minimo=MEMORIA_CFG["minimo"])
+        trechos = MEMORIA.buscar(consulta, n=3, minimo=MEMORIA_CFG["minimo"])
         if not trechos:
             if MEMORIA.ultimo_erro and time.time() - _ULTIMO_AVISO_MEMORIA >= 300:
                 _ULTIMO_AVISO_MEMORIA = time.time()
                 _passo_memoria("Memória", "memória indisponível", True)
-            return texto
+            return ""
         notas = list(dict.fromkeys(t["nota"] for t in trechos))
         EVENTOS.emitir({"tipo": "memoria", "notas": notas})
         _passo_memoria("Consultou: " + ", ".join(notas), f"{len(trechos)} trecho(s)", False)
-        return texto + memoria.bloco_contexto(trechos)
+        return memoria.bloco_contexto(trechos)
     except Exception as e:
         try:
             log({"tipo": "memoria_erro", "erro": str(e)})
         except Exception:
             pass
-        return texto
+        return ""
 
 
 def _indexar_ao_ligar():
@@ -703,8 +703,9 @@ class SessaoClaude:
                 f.write(linha)
                 f.flush()
 
-    def perguntar(self, texto, limite=300, ao_avisar=None, aviso_apos=None):
-        texto_final = com_memoria(texto)  # fora do lock: a busca roda enquanto a rodada anterior termina
+    def perguntar(self, texto, limite=300, ao_avisar=None, aviso_apos=None, consulta=None):
+        # só busca na memória quando há uma consulta (as palavras do usuário)
+        texto_final = texto + bloco_memoria(consulta) if consulta else texto  # fora do lock: a busca roda enquanto a rodada anterior termina
         with self.lock:
             if not self.vivo():
                 self.iniciar()
@@ -1654,7 +1655,7 @@ def processar(audio=None, mime="audio/webm", texto=None):
                          "\n".join(Turno.conversa_local[-8:]) + "]\n\n")
                 Turno.conversa_local = []
             antes += registro.pop("agente_repasse", "")  # o agente local errou no meio: o Claude termina
-            r = SESSAO.perguntar(antes + texto + dados, ao_avisar=avisar, aviso_apos=2.5 if dados else None)
+            r = SESSAO.perguntar(antes + texto + dados, ao_avisar=avisar, aviso_apos=2.5 if dados else None, consulta=texto)
             registro["claude_s"] = round(time.time() - t_claude, 2)
             registro["cedo"] = bool(r.get("cedo"))
             if SESSAO.turno:

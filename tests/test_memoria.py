@@ -1,6 +1,8 @@
 import json
 import os
 import tempfile
+import threading
+import time
 import unittest
 import urllib.error
 from pathlib import Path
@@ -51,8 +53,11 @@ class TestMemoria(unittest.TestCase):
         return vetor_falso(textos)
 
     def nova(self, embed=None):
-        return memoria.Memoria(self.pasta, self.indice,
-                               embed=embed or self.embed_falso)
+        mem = memoria.Memoria(self.pasta, self.indice,
+                              embed=embed or self.embed_falso)
+        # a reindexação em segundo plano termina antes de apagar a pasta
+        self.addCleanup(mem.aguardar_indexacao, 10)
+        return mem
 
     def nota(self, rel, conteudo):
         p = self.pasta / rel
@@ -108,6 +113,7 @@ class TestMemoria(unittest.TestCase):
         self.assertNotIn("KLog/KLog.md", self.ler_indice()["notas"])
 
     def test_ordem_e_minimo(self):
+        self.mem.indexar()
         r = self.mem.buscar("qual o preço?")
         self.assertEqual(r[0]["nota"], "Preços.md")
         r = self.mem.buscar("qual o preço?", minimo=0.99)
@@ -128,6 +134,7 @@ class TestMemoria(unittest.TestCase):
         mem = self.nova(falha)
         self.assertEqual(mem.buscar("x"), [])
         self.assertIsNotNone(mem.ultimo_erro)
+        self.assertTrue(mem.ultima_busca_falhou)
 
     def test_ollama_cai_depois_usa_indice_antigo(self):
         self.mem.indexar()
@@ -141,7 +148,10 @@ class TestMemoria(unittest.TestCase):
         st = p.stat()
         os.utime(p, (st.st_atime, st.st_mtime + 10))
         self.assertTrue(mem.buscar("preço"))
-        self.assertIsNotNone(mem.ultimo_erro)
+        self.assertFalse(mem.ultima_busca_falhou)  # a pergunta deu certo
+        self.assertTrue(mem.aguardar_indexacao(5))
+        self.assertIn("falha ao indexar", mem.ultimo_erro)
+        self.assertTrue(mem.buscar("preço"))  # segue com o índice antigo
 
     def test_pergunta_vazia(self):
         self.assertEqual(self.mem.buscar("   "), [])
@@ -187,9 +197,161 @@ class TestMemoria(unittest.TestCase):
 
     def test_falha_ao_gravar_nao_derruba(self):
         with mock.patch("os.replace", side_effect=PermissionError):
+            self.mem.buscar("preço")  # dispara a indexação em segundo plano
+            self.assertTrue(self.mem.aguardar_indexacao(5))
+            self.assertIn("grava", self.mem.ultimo_erro)
             r = self.mem.buscar("preço")
-        self.assertTrue(r)
-        self.assertIn("grava", self.mem.ultimo_erro)
+        self.assertTrue(r)  # o índice segue na memória
+        self.assertFalse(self.mem.ultima_busca_falhou)
+
+    # -- busca não espera a indexação (R7) --------------------------------
+    def editar(self, rel="Preços.md", conteudo="# Preços\n## Valores\nmudou o preço."):
+        p = self.nota(rel, conteudo)
+        st = p.stat()
+        os.utime(p, (st.st_atime, st.st_mtime + 10))
+
+    def test_busca_nao_espera_indexacao_lenta(self):
+        self.mem.indexar()
+        liberar = threading.Event()
+        docs = []
+
+        def lenta_docs(textos):
+            if textos[0].startswith("search_document:"):
+                docs.append(1)
+                liberar.wait(5)
+                return vetor_falso(textos)
+            return self.embed_falso(textos)
+        mem = self.nova(lenta_docs)
+        self.editar()
+        inicio = time.monotonic()
+        r = mem.buscar("preço")
+        self.assertLess(time.monotonic() - inicio, 1.0)
+        self.assertIn("O preço do plano é 50.", [x["texto"] for x in r])  # índice antigo
+        self.assertFalse(mem.aguardar_indexacao(0.2))  # segue reindexando
+        mem.buscar("preço")  # outra busca no meio não abre uma 2ª indexação
+        liberar.set()
+        self.assertTrue(mem.aguardar_indexacao(5))
+        self.assertEqual(len(docs), 1)
+        r = mem.buscar("preço")
+        self.assertIn("mudou o preço.", [x["texto"] for x in r])
+
+    def test_busca_nao_espera_indexacao_que_falha(self):
+        self.mem.indexar()
+
+        def falha_lenta_docs(textos):
+            if textos[0].startswith("search_document:"):
+                time.sleep(0.5)
+                raise urllib.error.URLError("caiu")
+            return self.embed_falso(textos)
+        mem = self.nova(falha_lenta_docs)
+        self.editar()
+        inicio = time.monotonic()
+        self.assertTrue(mem.buscar("preço"))
+        self.assertLess(time.monotonic() - inicio, 0.4)
+        self.assertTrue(mem.aguardar_indexacao(5))
+        self.assertFalse(mem.ultima_busca_falhou)
+
+    def test_busca_nao_chama_indexar(self):
+        with mock.patch.object(memoria.Memoria, "indexar",
+                               side_effect=AssertionError("indexou na busca")):
+            self.mem.buscar("preço")
+            self.assertTrue(self.mem.aguardar_indexacao(5))
+        self.assertFalse(self.mem.ultima_busca_falhou)
+        self.assertEqual(len(self.ler_indice()["notas"]), 2)
+
+    def test_pergunta_falha_mesmo_assim_reindexa(self):
+        def so_docs(textos):
+            if textos[0].startswith("search_query:"):
+                raise urllib.error.URLError("modelo carregando")
+            return self.embed_falso(textos)
+        mem = self.nova(so_docs)
+        self.assertEqual(mem.buscar("preço"), [])
+        self.assertTrue(mem.ultima_busca_falhou)
+        self.assertTrue(mem.aguardar_indexacao(5))
+        self.assertEqual(len(self.ler_indice()["notas"]), 2)  # reaqueceu
+
+    def test_falha_de_indice_nao_marca_busca(self):
+        self.nota("Ruim.md", b"\xff\xfe\x00bad")
+        self.mem.indexar()
+        self.assertIn("Ruim.md", self.mem.ultimo_erro)
+        self.mem.buscar("nada a ver")
+        self.assertTrue(self.mem.aguardar_indexacao(5))
+        self.assertFalse(self.mem.ultima_busca_falhou)
+
+    def test_sem_buscar_aguardar_devolve_true(self):
+        self.assertTrue(self.mem.aguardar_indexacao(0))
+
+    def test_atualizar_false_nao_dispara_indexacao(self):
+        self.mem.buscar("preço", atualizar=False)
+        self.assertTrue(self.mem.aguardar_indexacao(0))
+        self.assertFalse(self.indice.exists())
+
+    def test_temporario_com_pid(self):
+        origens = []
+        original = os.replace
+
+        def anota(src, dst):
+            origens.append(Path(src).name)
+            return original(src, dst)
+        with mock.patch("os.replace", anota):
+            self.mem.indexar()
+        self.assertTrue(origens)
+        self.assertIn(f".{os.getpid()}.tmp", origens[0])
+        self.assertFalse(list(self.indice.parent.glob("*.tmp")))
+
+    # -- Ollama de verdade (urlopen falso) --------------------------------
+    def ollama_falso(self, pedidos):
+        class Resp:
+            def __init__(self, corpo):
+                self.corpo = corpo
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def read(self):
+                return self.corpo
+
+        def urlopen(req, timeout=None):
+            dados = json.loads(req.data.decode("utf-8"))
+            pedidos.append((dados, timeout))
+            vetores = vetor_falso(dados["input"])
+            return Resp(json.dumps({"embeddings": vetores}).encode("utf-8"))
+        return urlopen
+
+    def test_payload_em_cpu(self):
+        pedidos = []
+        mem = memoria.Memoria(self.pasta, self.indice)
+        with mock.patch("urllib.request.urlopen", self.ollama_falso(pedidos)):
+            mem.indexar()
+            mem.buscar("preço", atualizar=False)
+        self.assertTrue(pedidos)
+        for dados, _ in pedidos:
+            self.assertEqual(dados["options"], {"num_gpu": 0})
+            self.assertEqual(dados["model"], memoria.MODELO_PADRAO)
+
+    def test_timeouts_pergunta_curta_indexacao_longa(self):
+        pedidos = []
+        mem = memoria.Memoria(self.pasta, self.indice)
+        self.addCleanup(mem.aguardar_indexacao, 10)
+        with mock.patch("urllib.request.urlopen", self.ollama_falso(pedidos)):
+            mem.buscar("preço")
+            self.assertTrue(mem.aguardar_indexacao(5))
+        pergunta = [t for d, t in pedidos if d["input"][0].startswith("search_query:")]
+        docs = [t for d, t in pedidos if d["input"][0].startswith("search_document:")]
+        self.assertEqual(pergunta, [3])
+        self.assertTrue(docs)
+        self.assertEqual(set(docs), {memoria.TIMEOUT_INDEXAR})
+        self.assertEqual(memoria.TIMEOUT_INDEXAR, 120)
+
+    def test_indexar_com_timeout(self):
+        pedidos = []
+        mem = memoria.Memoria(self.pasta, self.indice)
+        with mock.patch("urllib.request.urlopen", self.ollama_falso(pedidos)):
+            mem.indexar(timeout=45)
+        self.assertEqual({t for _, t in pedidos}, {45})
 
     def test_atributos_publicos(self):
         self.assertEqual(self.mem.pasta, self.pasta)
@@ -236,6 +398,13 @@ class TestBlocoEEnv(unittest.TestCase):
             mem, config = memoria.de_env(raiz)
             self.assertIsNone(mem)
             self.assertEqual(config, {"ligada": True, "minimo": 0.55})
+
+    def test_de_env_timeout(self):
+        with tempfile.TemporaryDirectory() as d:
+            raiz = Path(d)
+            (raiz / ".env").write_text(f"JARVIS_CEREBRO={raiz}\n", encoding="utf-8")
+            self.assertEqual(memoria.de_env(raiz)[0].timeout, 3)
+            self.assertEqual(memoria.de_env(raiz, timeout=30)[0].timeout, 30)
 
 
 if __name__ == "__main__":

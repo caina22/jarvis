@@ -3,6 +3,7 @@ import io
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import busca
 import memoria
@@ -30,7 +31,9 @@ class TestBusca(unittest.TestCase):
         self.indice = Path(tmp.name) / "indice.json"
 
     def mem(self, embed):
-        return memoria.Memoria(self.pasta, self.indice, embed=embed)
+        mem = memoria.Memoria(self.pasta, self.indice, embed=embed)
+        self.addCleanup(mem.aguardar_indexacao, 10)
+        return mem
 
     def rodar(self, argv, mem):
         buf = io.StringIO()
@@ -53,3 +56,28 @@ class TestBusca(unittest.TestCase):
         codigo, saida = self.rodar(["x"], self.mem(falha))
         self.assertEqual(codigo, 1)
         self.assertIn("ollama pull nomic-embed-text", saida)
+
+    def test_indexa_antes_e_nao_deixa_thread(self):
+        mem = self.mem(vetor_falso)
+        codigo, saida = self.rodar(["preço"], mem)
+        self.assertEqual(codigo, 0)
+        self.assertIn("Preços.md", saida)  # índice novo, já na primeira busca
+        self.assertTrue(mem.aguardar_indexacao(0))  # nada em segundo plano
+
+    def test_ollama_cai_usa_indice_antigo(self):
+        self.mem(vetor_falso).indexar()
+
+        def falha_docs(textos):
+            if textos[0].startswith("search_document:"):
+                raise OSError("caiu")
+            return vetor_falso(textos)
+        (self.pasta / "Nova.md").write_text("## A\nmotorola", encoding="utf-8")
+        codigo, saida = self.rodar(["preço"], self.mem(falha_docs))
+        self.assertEqual(codigo, 0)
+        self.assertIn("Preços.md", saida)
+
+    def test_timeout_longo(self):
+        with mock.patch.object(memoria, "de_env", return_value=(None, {})) as de_env:
+            codigo, _ = self.rodar(["x"], None)
+        self.assertEqual(codigo, 1)
+        de_env.assert_called_once_with(busca.RAIZ, timeout=30)

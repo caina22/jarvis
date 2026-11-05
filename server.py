@@ -314,8 +314,11 @@ def bloco_memoria(consulta):
     try:
         trechos = MEMORIA.buscar(consulta, n=3, minimo=MEMORIA_CFG["minimo"])
         if not trechos:
-            if MEMORIA.ultimo_erro and time.time() - _ULTIMO_AVISO_MEMORIA >= 300:
+            # só avisa quando a pergunta não foi vetorizada (Ollama fora ou carregando);
+            # nota ilegível ou falha ao gravar ficam só em ultimo_erro
+            if MEMORIA.ultima_busca_falhou and time.time() - _ULTIMO_AVISO_MEMORIA >= 300:
                 _ULTIMO_AVISO_MEMORIA = time.time()
+                log({"tipo": "memoria_indisponivel", "erro": MEMORIA.ultimo_erro})
                 _passo_memoria("Memória", "memória indisponível", True)
             return ""
         notas = list(dict.fromkeys(t["nota"] for t in trechos))
@@ -332,9 +335,8 @@ def bloco_memoria(consulta):
 
 def _indexar_ao_ligar():
     try:
-        mem = memoria.Memoria(MEMORIA.pasta, MEMORIA.indice, modelo=MEMORIA.modelo,
-                              url=MEMORIA.url, timeout=120)
-        log({"tipo": "memoria_indexada", "notas": mem.indexar()})
+        # a mesma instância da busca: o índice novo vale já no primeiro pedido
+        log({"tipo": "memoria_indexada", "notas": MEMORIA.indexar(timeout=memoria.TIMEOUT_INDEXAR)})
     except Exception as e:
         log({"tipo": "memoria_erro", "erro": str(e)})
 
@@ -705,7 +707,9 @@ class SessaoClaude:
 
     def perguntar(self, texto, limite=300, ao_avisar=None, aviso_apos=None, consulta=None):
         # só busca na memória quando há uma consulta (as palavras do usuário)
+        t_memoria = time.time()
         texto_final = texto + bloco_memoria(consulta) if consulta else texto  # fora do lock: a busca roda enquanto a rodada anterior termina
+        memoria_s = round(time.time() - t_memoria, 2) if consulta else None
         with self.lock:
             if not self.vivo():
                 self.iniciar()
@@ -713,6 +717,8 @@ class SessaoClaude:
             self.livre.wait(timeout=20)  # espera o Claude fechar a rodada anterior
             turno = TurnoClaude(ao_avisar)
             turno.marcas["esperou_rodada_s"] = round(time.time() - espera, 2)
+            if memoria_s is not None:
+                turno.marcas["memoria_s"] = memoria_s
             self.turno = turno
             self.livre.clear()
             self.ferramentas_turno = []
@@ -1659,7 +1665,9 @@ def processar(audio=None, mime="audio/webm", texto=None):
             registro["claude_s"] = round(time.time() - t_claude, 2)
             registro["cedo"] = bool(r.get("cedo"))
             if SESSAO.turno:
-                registro["etapas"] = {k: v for k, v in SESSAO.turno.marcas.items() if k != "envio"}
+                registro["etapas"] = {k: v for k, v in SESSAO.turno.marcas.items() if k not in ("envio", "memoria_s")}
+                if "memoria_s" in SESSAO.turno.marcas:
+                    registro["memoria_s"] = SESSAO.turno.marcas["memoria_s"]  # quanto a busca na memória custou
         if Turno.interrompido or r.get("interrompido"):
             registro["interrompido"] = True
             return

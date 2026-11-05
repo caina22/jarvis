@@ -18,12 +18,16 @@ def main(argv: list[str], mem: "memoria.Memoria | None" = None) -> int:
         print('uso: python busca.py "pergunta"')
         return 2
     if mem is None:
-        mem, _ = memoria.de_env(RAIZ)
+        mem, _ = memoria.de_env(RAIZ, timeout=30)  # chamada do Claude, não da voz: pode esperar
         if mem is None:
             print("JARVIS_CEREBRO não está definido no .env; "
                   "não sei onde fica o segundo cérebro.")
             return 1
-    achados = mem.buscar(" ".join(argv), n=5)
+    try:
+        mem.indexar()  # aqui dá para esperar: o processo acaba logo depois
+    except Exception:
+        pass  # segue com o índice que há; a busca diz se o Ollama está fora
+    achados = mem.buscar(" ".join(argv), n=5, atualizar=False)
     if not achados:
         if mem.ultimo_erro:
             print(f"Memória indisponível: {mem.ultimo_erro}\n{DICA}")

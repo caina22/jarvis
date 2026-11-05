@@ -152,7 +152,34 @@ class TestMemoria(unittest.TestCase):
             return original(self_, *a, **k)
         with mock.patch.object(Path, "read_text", lê):
             self.mem.indexar()
-        self.assertIn("Preços.md", self.ler_indice()["notas"])
+        notas = self.ler_indice()["notas"]
+        self.assertIn("Preços.md", notas)
+        self.assertNotIn("KLog/KLog.md", notas)
+        self.assertIn("KLog/KLog.md", self.mem.ultimo_erro)
+
+    def test_nota_utf8_invalido_pulada(self):
+        self.nota("Ruim.md", b"\xff\xfe\x00bad")
+        self.assertEqual(self.mem.indexar(), 2)
+        notas = self.ler_indice()["notas"]
+        self.assertNotIn("Ruim.md", notas)
+        self.assertIn("Preços.md", notas)
+        self.assertIn("Ruim.md", self.mem.ultimo_erro)
+
+    def test_falha_no_meio_guarda_o_ja_calculado(self):
+        n = []
+
+        def falha_na_2a(textos):
+            n.append(1)
+            if len(n) == 2:
+                raise urllib.error.URLError("caiu")
+            return self.embed_falso(textos)
+        mem = self.nova(falha_na_2a)
+        with self.assertRaises(urllib.error.URLError):
+            mem.indexar()
+        self.assertEqual(len(self.ler_indice()["notas"]), 1)
+        self.chamadas.clear()
+        self.assertEqual(self.nova().indexar(), 1)
+        self.assertEqual(len(self.chamadas), 1)
 
     def test_falha_ao_gravar_nao_derruba(self):
         with mock.patch("os.replace", side_effect=PermissionError):

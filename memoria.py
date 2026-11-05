@@ -142,18 +142,25 @@ class Memoria:
         achadas = self._notas_na_pasta()
         novas, mudou = {}, False
 
+        falha = None
         for chave, caminho in achadas.items():
             try:
                 mtime = caminho.stat().st_mtime
                 if chave in notas and notas[chave].get("mtime") == mtime:
                     continue
                 texto = caminho.read_text(encoding="utf-8-sig")
-            except OSError:
-                continue  # nota ilegível: pula, as outras seguem
+            except (OSError, UnicodeDecodeError):
+                # nota ilegível: pula, as outras seguem
+                self.ultimo_erro = f"nota ilegível: {chave}"
+                continue
             trechos = dividir(texto, caminho.stem)
             docs = [f"search_document: {caminho.stem} — {t['titulo']}\n{t['texto']}"
                     for t in trechos]
-            vetores = self._vetores(docs) if docs else []
+            try:
+                vetores = self._vetores(docs) if docs else []
+            except Exception as e:
+                falha = e  # guarda o que já foi calculado antes de propagar
+                break
             novas[chave] = {"mtime": mtime, "trechos": [
                 {"titulo": t["titulo"], "texto": t["texto"], "vetor": v}
                 for t, v in zip(trechos, vetores)]}
@@ -163,7 +170,11 @@ class Memoria:
             notas.update(novas)
             for k in apagadas:
                 del notas[k]
+            erro = self.ultimo_erro
             self._gravar(dados)
+            self.ultimo_erro = self.ultimo_erro or erro
+        if falha is not None:
+            raise falha
         return len(novas)
 
     # -- busca -----------------------------------------------------------
